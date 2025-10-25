@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { Upload, User, FileText, Sparkles, Tag, Globe, Lock, Radio, X } from 'lucide-react';
+import { Upload, User, FileText, Sparkles, Tag, Globe, Lock, Radio, X, Loader2 } from 'lucide-react';
+import {supabase} from '../../supabaseConfig';
 
 export default function StartStreamPage() {
   const [avatarPreview, setAvatarPreview] = useState<string>('');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     backstory: '',
@@ -17,6 +20,7 @@ export default function StartStreamPage() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setAvatarFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatarPreview(reader.result as string);
@@ -32,9 +36,155 @@ export default function StartStreamPage() {
     });
   };
 
-  const handleStartStream = () => {
-    console.log('Stream data:', { ...formData, avatar: avatarPreview });
-    alert('Stream started successfully!');
+  // Upload avatar to Supabase Storage
+  const uploadAvatar = async (file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('streamers')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data } = supabase.storage
+        .from('streamers')
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      return null;
+    }
+  };
+
+  // Save stream data to Supabase
+  const handleStartStream = async () => {
+    // Validation
+    if (!formData.streamTitle || !formData.name || !formData.category) {
+      alert('Please fill in all required fields (Stream Title, Avatar Name, and Category)');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      // 1. Upload avatar if exists
+      let avatarUrl = null;
+      if (avatarFile) {
+        avatarUrl = await uploadAvatar(avatarFile);
+        if (!avatarUrl) {
+          throw new Error('Failed to upload avatar');
+        }
+      }
+
+      // 2. Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated. Please log in first.');
+      }
+
+      // 3. Parse tags
+      const tagsArray = formData.tags
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 0);
+
+      // 4. Insert stream data
+      const { data, error } = await supabase
+        .from('streamers')
+        .insert({
+          user_id: user.id,
+          stream_title: formData.streamTitle,
+          avatar_name: formData.name,
+          avatar_url: avatarUrl,
+          persona: formData.persona || null,
+          backstory: formData.backstory || null,
+          category: formData.category,
+          tags: tagsArray,
+          language: formData.language,
+          privacy: formData.privacy,
+          status: 'live',
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('Stream created:', data);
+      alert('Stream started successfully!');
+      
+      // Redirect to stream page
+      // window.location.href = `/stream/${data.id}`;
+    } catch (error: unknown) {
+      console.error('Error starting stream:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Save as draft
+  const handleSaveDraft = async () => {
+    if (!formData.streamTitle || !formData.name) {
+      alert('Please provide at least a title and avatar name');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      let avatarUrl = null;
+      if (avatarFile) {
+        avatarUrl = await uploadAvatar(avatarFile);
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated. Please log in first.');
+      }
+
+      const tagsArray = formData.tags
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 0);
+
+      const { data, error } = await supabase
+        .from('streamers')
+        .insert({
+          user_id: user.id,
+          stream_title: formData.streamTitle,
+          avatar_name: formData.name,
+          avatar_url: avatarUrl,
+          persona: formData.persona || null,
+          backstory: formData.backstory || null,
+          category: formData.category || null,
+          tags: tagsArray,
+          language: formData.language,
+          privacy: formData.privacy,
+          status: 'draft',
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('Draft saved:', data);
+      alert('Draft saved successfully!');
+    } catch (error: unknown) {
+      console.error('Error saving draft:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const categories = [
@@ -61,10 +211,20 @@ export default function StartStreamPage() {
           </div>
           <button
             onClick={handleStartStream}
-            className="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-semibold transition flex items-center space-x-2"
+            disabled={isUploading}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-2 rounded-lg font-semibold transition flex items-center space-x-2"
           >
-            <Radio className="w-5 h-5" />
-            <span>Go Live</span>
+            {isUploading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Starting...</span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-5 h-5" />
+                <span>Go Live</span>
+              </>
+            )}
           </button>
         </div>
       </nav>
@@ -96,7 +256,10 @@ export default function StartStreamPage() {
                         className="w-full aspect-square object-cover rounded-xl"
                       />
                       <button
-                        onClick={() => setAvatarPreview('')}
+                        onClick={() => {
+                          setAvatarPreview('');
+                          setAvatarFile(null);
+                        }}
                         className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 p-2 rounded-full transition"
                       >
                         <X className="w-4 h-4" />
@@ -288,15 +451,29 @@ export default function StartStreamPage() {
 
             {/* Action Buttons */}
             <div className="flex items-center justify-end space-x-4">
-              <button className="px-6 py-3 border border-gray-600 rounded-lg hover:bg-gray-700 transition font-medium">
-                Save Draft
+              <button 
+                onClick={handleSaveDraft}
+                disabled={isUploading}
+                className="px-6 py-3 border border-gray-600 rounded-lg hover:bg-gray-700 disabled:bg-gray-800 disabled:cursor-not-allowed transition font-medium"
+              >
+                {isUploading ? 'Saving...' : 'Save Draft'}
               </button>
               <button
                 onClick={handleStartStream}
-                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-semibold flex items-center space-x-2"
+                disabled={isUploading}
+                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition font-semibold flex items-center space-x-2"
               >
-                <Radio className="w-5 h-5" />
-                <span>Go Live</span>
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Starting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Radio className="w-5 h-5" />
+                    <span>Go Live</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Search, Menu, Bell, User, Eye, Users, Radio } from 'lucide-react';
+import { Search, Menu, User, Eye, Users, Radio, PlusCircle } from 'lucide-react';
 import { signOut } from '../hooks/AuthFunctions';
+import { useNavigate } from 'react-router-dom';
 
 interface Stream {
   id: number;
@@ -16,7 +17,7 @@ interface Stream {
 export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState('For You');
   const [searchQuery, setSearchQuery] = useState('');
-
+  const navigate = useNavigate();
   const categories = ['For You', 'Following', 'Games', 'IRL', 'Music', 'Esports'];
 
   const streams: Stream[] = [
@@ -142,7 +143,9 @@ export default function HomePage() {
               />
             </div>
 
-            <Bell className="w-6 h-6 cursor-pointer hover:text-indigo-400 transition" />
+            <PlusCircle className="w-12 h-12 cursor-pointer hover:text-indigo-400 transition" onClick={() => {
+                navigate('/start-stream'); 
+            }}/>
             <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-indigo-700 transition">
               <User className="w-5 h-5" onClick={signOut}/>
             </div>
