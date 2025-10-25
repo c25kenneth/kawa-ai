@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Search, Menu, Bell, User, Eye, Users, Radio } from 'lucide-react';
+import { signOut } from '../hooks/AuthFunctions';
 
 interface Stream {
   id: number;
@@ -143,7 +144,7 @@ export default function HomePage() {
 
             <Bell className="w-6 h-6 cursor-pointer hover:text-indigo-400 transition" />
             <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-indigo-700 transition">
-              <User className="w-5 h-5" />
+              <User className="w-5 h-5" onClick={signOut}/>
             </div>
           </div>
         </div>

@@ -1,13 +1,27 @@
-// import AuthPage from "./screens/Authenticate"
+import AuthPage from "./screens/Authenticate"
 import './index.css';
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import ProtectedRoute from "./components/ProtectedRoute"
 import HomePage from "./screens/HomePage";
+// import StartStreamPage from './screens/StartStream';
 
 function App() {
 
   return (
-    <>
-      <HomePage />
-    </>
+      <BrowserRouter>
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route 
+          path="/home" 
+          element={
+            <ProtectedRoute>
+              <HomePage />
+            </ProtectedRoute>
+          } 
+        />
+        <Route path="/" element={<Navigate to="/auth" />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
