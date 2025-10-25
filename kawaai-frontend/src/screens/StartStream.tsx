@@ -206,7 +206,7 @@ export default function StartStreamPage() {
       <nav className="bg-gray-800 border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="text-2xl font-bold text-indigo-500">StreamHub</div>
+            <div className="text-2xl font-bold text-indigo-500">Kawa.AI</div>
             <span className="text-gray-400">/ Start Stream</span>
           </div>
           <button

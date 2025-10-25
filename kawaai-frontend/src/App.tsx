@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute"
 import HomePage from "./screens/HomePage";
 import StartStreamPage from "./screens/StartStream";
+import LiveStreamViewer from "./screens/VideoStream";
 // import StartStreamPage from './screens/StartStream';
 
 function App() {
@@ -25,6 +26,14 @@ function App() {
           element={
             <ProtectedRoute>
               <StartStreamPage />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/video-stream" 
+          element={
+            <ProtectedRoute>
+              <LiveStreamViewer />
             </ProtectedRoute>
           } 
         />

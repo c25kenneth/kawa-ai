@@ -111,7 +111,7 @@ export default function HomePage() {
           <div className="flex items-center space-x-6">
             <div className="flex items-center space-x-2">
               <Menu className="w-6 h-6 cursor-pointer hover:text-indigo-400 transition" />
-              <div className="text-2xl font-bold text-indigo-500 cursor-pointer">StreamHub</div>
+              <div className="text-2xl font-bold text-indigo-500 cursor-pointer"></div>
             </div>
             
             <div className="hidden md:flex items-center space-x-6">
@@ -183,6 +183,7 @@ export default function HomePage() {
             <div
               key={stream.id}
               className="group cursor-pointer"
+              onClick={() => navigate("/video-stream")}
             >
               {/* Thumbnail */}
               <div className="relative aspect-video rounded-lg overflow-hidden mb-2">
@@ -226,7 +227,7 @@ export default function HomePage() {
         </div>
 
         {/* Recommended Categories */}
-        <div className="mt-12">
+        {/* <div className="mt-12">
           <h2 className="text-2xl font-bold mb-4">Popular Categories</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
@@ -257,7 +258,7 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );
