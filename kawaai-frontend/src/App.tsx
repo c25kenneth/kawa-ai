@@ -3,8 +3,9 @@ import './index.css';
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute"
 import HomePage from "./screens/HomePage";
-import StartStreamPage from "./screens/StartStream";
 import LiveStreamViewer from "./screens/VideoStream";
+import CreateStream from "./screens/CreateStream";
+import TextOnlyLivestream from "./screens/VideoStream";
 // import StartStreamPage from './screens/StartStream';
 
 function App() {
@@ -25,10 +26,11 @@ function App() {
           path="/start-stream" 
           element={
             <ProtectedRoute>
-              <StartStreamPage />
+              <CreateStream />
             </ProtectedRoute>
           } 
         />
+        <Route path="/stream/:roomId" element={<TextOnlyLivestream />} />
         <Route 
           path="/video-stream" 
           element={

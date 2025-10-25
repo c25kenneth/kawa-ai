@@ -9,8 +9,10 @@ from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli, llm
 
 from livekit import api
 from livekit.plugins import openai, silero
-# from livekit.plugins import noise_cancellation, silero
 from flask_cors import CORS
+from supabase import create_client, Client
+import uuid
+from uuid import UUID
 
 app = Flask(__name__)
 
@@ -22,6 +24,11 @@ CORS(app, supports_credentials=True)
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+
+# Supabase setup
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # urls + api_key
 url = "https://janitorai.com/hackathon/completions"
@@ -47,9 +54,141 @@ def chat_ai():
         print(f"Error {response.status_code}: {response.text}")
     else:
         result = response.json()
-        # print(result["choices"][0]["message"]["content"])
-
         return result["choices"][0]["message"]["content"]
+
+
+@app.route('/api/rooms/create', methods=['POST'])
+def create_room():
+    """
+    Create a new stream room
+    
+    Expected JSON body:
+    {
+        "title": "My Gaming Stream",
+        "game": "League of Legends",
+        "streamerName": "ProGamer123",
+        "userId": "uuid"
+    }
+    """
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header:
+        return jsonify({"error": "No authorization header"}), 401
+    
+    try:
+        data = request.json
+        title = data.get('title')
+        game = data.get('game')
+        streamer_name = data.get('streamerName')
+        user_id = data.get('userId')
+        
+        if not all([title, game, streamer_name, user_id]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Generate unique room ID
+        room_id = str(uuid.uuid4())
+        
+        # Create room in Supabase
+        room_data = {
+            "id": room_id,
+            "title": title,
+            "game": game,
+            "streamer_name": streamer_name,
+            "streamer_id": user_id,
+            "is_live": True,
+            "viewer_count": 0,
+            "created_at": "now()"
+        }
+        
+        result = supabase.table('rooms').insert(room_data).execute()
+        
+        return jsonify({
+            "roomId": room_id,
+            "room": result.data[0] if result.data else room_data
+        })
+    
+    except Exception as e:
+        print(f"Error creating room: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/rooms/list', methods=['GET'])
+def list_rooms():
+    """
+    List all active rooms
+    """
+    try:
+        result = supabase.table('rooms').select('*').eq('is_live', True).order('created_at', desc=True).execute()
+        
+        return jsonify({
+            "rooms": result.data
+        })
+    
+    except Exception as e:
+        print(f"Error listing rooms: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/rooms/past', methods=['GET'])
+def get_past_rooms():
+    """
+    Get all past rooms (non-live)
+    """
+    try:
+        result = supabase.table('rooms').select('*').eq('is_live', False).order('created_at', desc=True).execute()
+        return jsonify({"rooms": result.data}), 200
+    except Exception as e:
+        print(f"Error getting past rooms: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/rooms/<room_id>', methods=['GET'])
+def get_room(room_id):
+    """
+    Get details of a specific room by UUID
+    """
+    try:
+        try:
+            UUID(room_id, version=4)
+        except ValueError:
+            return jsonify({"error": "Invalid room ID"}), 400
+
+        result = supabase.table('rooms').select('*').eq('id', room_id).single().execute()
+        
+        if not result.data:
+            return jsonify({"error": "Room not found"}), 404
+        
+        return jsonify({"room": result.data}), 200
+
+    except Exception as e:
+        print(f"Error getting room: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/rooms/<room_id>/end', methods=['POST'])
+def end_room(room_id):
+    """
+    End a stream room
+    """
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header:
+        return jsonify({"error": "No authorization header"}), 401
+    
+    try:
+        # Update room status
+        result = supabase.table('rooms').update({
+            "is_live": False,
+            "ended_at": "now()"
+        }).eq('id', room_id).execute()
+        
+        return jsonify({
+            "message": "Room ended successfully"
+        })
+    
+    except Exception as e:
+        print(f"Error ending room: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/livekit-token', methods=['POST'])
 def create_token():
@@ -58,8 +197,9 @@ def create_token():
     
     Expected JSON body:
     {
-        "roomName": "my-room",
+        "roomName": "room-uuid",
         "participantName": "john-doe",
+        "participantId": "user-uuid",
         "metadata": "{\"userId\": \"123\"}"  // optional
     }
     """
@@ -85,6 +225,7 @@ def create_token():
         
         # Set participant identity
         token.with_identity(participant_id)
+        token.with_name(participant_name)
         
         # Add metadata if provided
         if metadata:
@@ -113,61 +254,6 @@ def create_token():
         }), 500
 
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    return jsonify({"status": "ok", "service": "livekit-backend"})
-
-
-@app.route('/api/rooms/create', methods=['POST'])
-def create_room():
-    """
-    Create a new room (optional - rooms are auto-created on join)
-    
-    Expected JSON body:
-    {
-        "roomName": "my-room"
-    }
-    """
-    try:
-        data = request.json
-        room_name = data.get('roomName')
-
-        if not room_name:
-            return jsonify({"error": "roomName is required"}), 400
-
-        livekit_api = api.LiveKitAPI(
-            LIVEKIT_URL,
-            LIVEKIT_API_KEY,
-            LIVEKIT_API_SECRET
-        )
-        
-        # This is async, so we need to handle it differently in Flask
-        # For simplicity, rooms are typically auto-created on first join
-        
-        return jsonify({
-            "room": room_name,
-            "message": "Room will be created on first join"
-        })
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/rooms/list', methods=['GET'])
-def list_rooms():
-    """
-    List all active rooms
-    Note: This requires async handling, which is complex in Flask
-    Consider using FastAPI for this feature or implement with threading
-    """
-    return jsonify({
-        "message": "Use FastAPI version for async room listing",
-        "rooms": []
-    })
-
-
-# Optional: Supabase authentication integration
 @app.route('/api/livekit-token/authenticated', methods=['POST'])
 def create_token_authenticated():
     """
@@ -209,6 +295,12 @@ def create_token_authenticated():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 401
+
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({"status": "ok", "service": "livekit-backend"})
 
 
 @app.errorhandler(404)

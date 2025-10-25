@@ -1,119 +1,63 @@
-import { useState } from 'react';
-import { Search, Menu, User, Eye, Users, Radio, PlusCircle } from 'lucide-react';
-import { signOut } from '../hooks/AuthFunctions';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from "react";
+import { Search, Menu, User, Eye, Radio, PlusCircle, Play } from "lucide-react";
+import { signOut } from "../hooks/AuthFunctions";
+import { useNavigate } from "react-router-dom";
 
-interface Stream {
-  id: number;
-  streamer: string;
-  avatar: string;
-  game: string;
+interface Room {
+  id: string;
   title: string;
-  viewers: string;
-  thumbnail: string;
-  isLive: boolean;
+  game: string;
+  streamer_name: string;
+  viewer_count: number;
+  is_live: boolean;
 }
 
-export default function HomePage() {
-  const [activeCategory, setActiveCategory] = useState('For You');
-  const [searchQuery, setSearchQuery] = useState('');
-  const navigate = useNavigate();
-  const categories = ['For You', 'Following', 'Games', 'IRL', 'Music', 'Esports'];
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
-  const streams: Stream[] = [
-    {
-      id: 1,
-      streamer: 'ProGamer123',
-      avatar: '🎮',
-      game: 'League of Legends',
-      title: 'Challenger Gameplay | Road to Rank 1',
-      viewers: '12.5K',
-      thumbnail: '#9333EA',
-      isLive: true,
-    },
-    {
-      id: 2,
-      streamer: 'CasualCoder',
-      avatar: '💻',
-      game: 'Software Development',
-      title: 'Building a Full-Stack App | React + Node.js',
-      viewers: '3.2K',
-      thumbnail: '#3B82F6',
-      isLive: true,
-    },
-    {
-      id: 3,
-      streamer: 'ArtistVibes',
-      avatar: '🎨',
-      game: 'Art',
-      title: 'Digital Painting Session | Character Design',
-      viewers: '5.8K',
-      thumbnail: '#EC4899',
-      isLive: true,
-    },
-    {
-      id: 4,
-      streamer: 'SpeedRunner99',
-      avatar: '⚡',
-      game: 'Super Mario 64',
-      title: 'World Record Attempts | 16 Star Run',
-      viewers: '8.9K',
-      thumbnail: '#EF4444',
-      isLive: true,
-    },
-    {
-      id: 5,
-      streamer: 'MusicMaestro',
-      avatar: '🎵',
-      game: 'Music',
-      title: 'Live Guitar Performance | Taking Requests',
-      viewers: '2.1K',
-      thumbnail: '#10B981',
-      isLive: true,
-    },
-    {
-      id: 6,
-      streamer: 'ChefStream',
-      avatar: '👨‍🍳',
-      game: 'Cooking',
-      title: 'Making Authentic Italian Pasta from Scratch',
-      viewers: '4.3K',
-      thumbnail: '#F59E0B',
-      isLive: true,
-    },
-    {
-      id: 7,
-      streamer: 'FitnessFreak',
-      avatar: '💪',
-      game: 'Fitness',
-      title: 'Morning Workout Routine | Join Me!',
-      viewers: '1.9K',
-      thumbnail: '#06B6D4',
-      isLive: true,
-    },
-    {
-      id: 8,
-      streamer: 'TechReviewer',
-      avatar: '📱',
-      game: 'Science & Technology',
-      title: 'Latest Tech Gadgets Review & Unboxing',
-      viewers: '6.7K',
-      thumbnail: '#8B5CF6',
-      isLive: true,
-    },
-  ];
+export default function HomePage() {
+  const [activeCategory, setActiveCategory] = useState("For You");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [pastRooms, setPastRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const navigate = useNavigate();
+  const categories = ["For You", "Following", "Games", "IRL", "Music", "Esports"];
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        const [liveRes, pastRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/rooms/list`),
+          fetch(`${BACKEND_URL}/api/rooms/past`),
+        ]);
+
+        const liveData = await liveRes.json();
+        const pastData = await pastRes.json();
+
+        if (!liveRes.ok) throw new Error(liveData.error || "Failed to fetch live streams");
+        if (!pastRes.ok) throw new Error(pastData.error || "Failed to fetch past streams");
+
+        setRooms(liveData.rooms || []);
+        setPastRooms(pastData.rooms || []);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRooms();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Navigation Bar */}
+      {/* NAVBAR */}
       <nav className="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
         <div className="px-4 py-2 flex items-center justify-between">
           <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <Menu className="w-6 h-6 cursor-pointer hover:text-indigo-400 transition" />
-              <div className="text-2xl font-bold text-indigo-500 cursor-pointer"></div>
-            </div>
-            
+            <Menu className="w-6 h-6 cursor-pointer hover:text-indigo-400 transition" />
             <div className="hidden md:flex items-center space-x-6">
               {categories.slice(0, 3).map((cat) => (
                 <button
@@ -121,8 +65,8 @@ export default function HomePage() {
                   onClick={() => setActiveCategory(cat)}
                   className={`text-sm font-medium transition ${
                     activeCategory === cat
-                      ? 'text-indigo-400'
-                      : 'text-gray-300 hover:text-white'
+                      ? "text-indigo-400"
+                      : "text-gray-300 hover:text-white"
                   }`}
                 >
                   {cat}
@@ -143,16 +87,23 @@ export default function HomePage() {
               />
             </div>
 
-            <PlusCircle className="w-12 h-12 cursor-pointer hover:text-indigo-400 transition" onClick={() => {
-                navigate('/start-stream'); 
-            }}/>
-            <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-indigo-700 transition">
-              <User className="w-5 h-5" onClick={signOut}/>
+            {/* CREATE STREAM */}
+            <PlusCircle
+              className="w-12 h-12 cursor-pointer hover:text-indigo-400 transition"
+              onClick={() => navigate("/start-stream")}
+            />
+
+            {/* USER ICON */}
+            <div
+              className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-indigo-700 transition"
+              onClick={signOut}
+            >
+              <User className="w-5 h-5" />
             </div>
           </div>
         </div>
 
-        {/* Category Pills */}
+        {/* CATEGORY PILLS */}
         <div className="px-4 py-3 flex items-center space-x-2 overflow-x-auto">
           {categories.map((cat) => (
             <button
@@ -160,8 +111,8 @@ export default function HomePage() {
               onClick={() => setActiveCategory(cat)}
               className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition ${
                 activeCategory === cat
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
               }`}
             >
               {cat}
@@ -170,95 +121,107 @@ export default function HomePage() {
         </div>
       </nav>
 
-      {/* Main Content */}
-      <div className="px-4 py-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-2">Live Channels</h2>
-          <p className="text-gray-400">Channels we think you'll like</p>
-        </div>
+      {/* MAIN CONTENT */}
+      <div className="px-4 py-6 space-y-10">
+        {/* LIVE STREAMS */}
+        <section>
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold mb-2">Live Streams</h2>
+            <p className="text-gray-400">Watch live channels now</p>
+          </div>
 
-        {/* Stream Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {streams.map((stream) => (
-            <div
-              key={stream.id}
-              className="group cursor-pointer"
-              onClick={() => navigate("/video-stream")}
-            >
-              {/* Thumbnail */}
-              <div className="relative aspect-video rounded-lg overflow-hidden mb-2">
-                <div
-                  className="w-full h-full flex items-center justify-center text-6xl"
-                  style={{ backgroundColor: stream.thumbnail }}
-                >
-                  {stream.avatar}
-                </div>
-                
-                {stream.isLive && (
-                  <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold flex items-center space-x-1">
-                    <Radio className="w-3 h-3" />
-                    <span>LIVE</span>
-                  </div>
-                )}
-                
-                <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white px-2 py-0.5 rounded text-xs flex items-center space-x-1">
-                  <Eye className="w-3 h-3" />
-                  <span>{stream.viewers}</span>
-                </div>
+          {loading && <p>Loading streams...</p>}
+          {error && <p className="text-red-500">{error}</p>}
 
-                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200"></div>
-              </div>
+          {!loading && rooms.length === 0 && (
+            <p className="text-gray-400">No live streams yet. Be the first to go live!</p>
+          )}
 
-              {/* Stream Info */}
-              <div className="flex space-x-2">
-                <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 text-lg">
-                  {stream.avatar}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm truncate group-hover:text-indigo-400 transition">
-                    {stream.title}
-                  </h3>
-                  <p className="text-gray-400 text-sm">{stream.streamer}</p>
-                  <p className="text-gray-500 text-xs">{stream.game}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Recommended Categories */}
-        {/* <div className="mt-12">
-          <h2 className="text-2xl font-bold mb-4">Popular Categories</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[
-              { name: 'League of Legends', viewers: '234K', color: '#9333EA' },
-              { name: 'Valorant', viewers: '156K', color: '#EF4444' },
-              { name: 'Minecraft', viewers: '189K', color: '#10B981' },
-              { name: 'Fortnite', viewers: '145K', color: '#3B82F6' },
-              { name: 'Just Chatting', viewers: '312K', color: '#EC4899' },
-              { name: 'CS:GO', viewers: '98K', color: '#F59E0B' },
-            ].map((category, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {rooms.map((room) => (
               <div
-                key={i}
-                className="cursor-pointer group"
+                key={room.id}
+                className="group cursor-pointer"
+                onClick={() => navigate(`/stream/${room.id}`)}
               >
-                <div
-                  className="aspect-[3/4] rounded-lg mb-2 flex items-center justify-center text-4xl group-hover:opacity-90 transition"
-                  style={{ backgroundColor: category.color }}
-                >
-                  🎮
+                <div className="relative aspect-video rounded-lg overflow-hidden mb-2 bg-gray-800">
+                  <div className="w-full h-full flex items-center justify-center text-6xl">
+                    🎥
+                  </div>
+
+                  {room.is_live && (
+                    <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold flex items-center space-x-1">
+                      <Radio className="w-3 h-3" />
+                      <span>LIVE</span>
+                    </div>
+                  )}
+
+                  <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white px-2 py-0.5 rounded text-xs flex items-center space-x-1">
+                    <Eye className="w-3 h-3" />
+                    <span>{room.viewer_count}</span>
+                  </div>
                 </div>
-                <h3 className="font-semibold text-sm group-hover:text-indigo-400 transition">
-                  {category.name}
-                </h3>
-                <p className="text-gray-400 text-xs flex items-center space-x-1">
-                  <Users className="w-3 h-3" />
-                  <span>{category.viewers} viewers</span>
-                </p>
+
+                <div className="flex space-x-2">
+                  <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 text-lg">
+                    🎮
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-sm truncate group-hover:text-indigo-400 transition">
+                      {room.title}
+                    </h3>
+                    <p className="text-gray-400 text-sm">{room.streamer_name}</p>
+                    <p className="text-gray-500 text-xs">{room.game}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-        </div> */}
+        </section>
+
+        {/* PAST STREAMS */}
+        {pastRooms.length > 0 && (
+          <section>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2">Past Streams</h2>
+              <p className="text-gray-400">Catch up on recent replays</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {pastRooms.map((room) => (
+                <div
+                  key={room.id}
+                  className="group cursor-pointer"
+                  onClick={() => navigate(`/replay/${room.id}`)}
+                >
+                  <div className="relative aspect-video rounded-lg overflow-hidden mb-2 bg-gray-800">
+                    <div className="w-full h-full flex items-center justify-center text-6xl">
+                      🎞️
+                    </div>
+
+                    <div className="absolute top-2 left-2 bg-indigo-600 text-white px-2 py-0.5 rounded text-xs font-bold flex items-center space-x-1">
+                      <Play className="w-3 h-3" />
+                      <span>REPLAY</span>
+                    </div>
+                  </div>
+
+                  <div className="flex space-x-2">
+                    <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0 text-lg">
+                      🎮
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm truncate group-hover:text-indigo-400 transition">
+                        {room.title}
+                      </h3>
+                      <p className="text-gray-400 text-sm">{room.streamer_name}</p>
+                      <p className="text-gray-500 text-xs">{room.game}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

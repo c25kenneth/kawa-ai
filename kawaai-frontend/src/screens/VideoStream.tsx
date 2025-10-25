@@ -1,6 +1,3 @@
-// TextOnlyLivestream.tsx
-// Complete text-only chat component for your React app
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   LiveKitRoom, 
@@ -9,11 +6,11 @@ import {
   useLocalParticipant, 
   useRoomContext 
 } from '@livekit/components-react';
-import { MessageSquare, Send, Users, Loader2 } from 'lucide-react';
-import { supabase } from '../../supabaseConfig'; // Your Supabase client
+import { MessageSquare, Send, Users, Loader2, ArrowLeft, StopCircle } from 'lucide-react';
+import { supabase } from '../../supabaseConfig';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const BACKEND_URL = 'http://127.0.0.1:5000';
-const DEFAULT_ROOM = 'main-room';
 
 interface User {
   id: string;
@@ -25,18 +22,61 @@ interface ChatMessage {
   sender: string;
   message: string;
   timestamp: number;
+  room_id: string;
 }
 
-// Chat Panel Component - Only shows inside the LiveKit room
-function ChatPanel() {
+interface Room {
+  id: string;
+  title: string;
+  game: string;
+  streamer_name: string;
+  streamer_id: string;
+  is_live: boolean;
+  viewer_count: number;
+}
+
+// Chat Panel Component
+function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo: Room | null; isStreamer: boolean }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const { localParticipant } = useLocalParticipant();
   const chatEndRef = useRef<HTMLDivElement>(null);
   const room = useRoomContext();
+  const navigate = useNavigate();
 
   // Listen for incoming chat messages
   const { message } = useDataChannel('chat');
+
+  // Load previous messages from Supabase
+  useEffect(() => {
+    loadPreviousMessages();
+  }, [roomId]);
+
+  const loadPreviousMessages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('room_id', roomId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const formattedMessages: ChatMessage[] = data.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.sender,
+          message: msg.message,
+          timestamp: new Date(msg.created_at).getTime(),
+          room_id: msg.room_id
+        }));
+        setMessages(formattedMessages);
+      }
+    } catch (error) {
+      console.error('Failed to load previous messages:', error);
+    }
+  };
 
   useEffect(() => {
     if (message && message.payload) {
@@ -47,6 +87,7 @@ function ChatPanel() {
           sender: message.from?.identity || 'Unknown',
           message: decoded,
           timestamp: Date.now(),
+          room_id: roomId,
         };
         setMessages((prev) => [...prev, chatMessage]);
       } catch (error) {
@@ -60,56 +101,76 @@ function ChatPanel() {
   }, [messages]);
 
   const sendMessage = async () => {
-  if (!input.trim() || !localParticipant) return;
+    if (!input.trim() || !localParticipant) return;
 
-  const messageText = input.trim();
-  const encoder = new TextEncoder();
-  const data = encoder.encode(messageText);
+    const messageText = input.trim();
+    const encoder = new TextEncoder();
+    const data = encoder.encode(messageText);
 
-  // Send to other participants
-  localParticipant.publishData(data, {
-    reliable: true,
-    topic: 'chat',
-  });
+    // Send to other participants
+    localParticipant.publishData(data, {
+      reliable: true,
+      topic: 'chat',
+    });
 
-  // Create a chat message object
-  const chatMessage: ChatMessage = {
-    id: `${Date.now()}-${Math.random()}`,
-    sender: localParticipant.identity,
-    message: messageText,
-    timestamp: Date.now(),
-  };
+    // Create a chat message object
+    const chatMessage: ChatMessage = {
+      id: `${Date.now()}-${Math.random()}`,
+      sender: localParticipant.identity,
+      message: messageText,
+      timestamp: Date.now(),
+      room_id: roomId,
+    };
 
-  // Add to local chat state immediately
-  setMessages((prev) => [...prev, chatMessage]);
-  setInput('');
+    // Add to local chat state immediately
+    setMessages((prev) => [...prev, chatMessage]);
+    setInput('');
 
-  // Upload message to Supabase
-  try {
-    const { error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          id: chatMessage.id,
-          sender: chatMessage.sender,
-          message: chatMessage.message,
-          created_at: chatMessage.timestamp,
-        },
-      ]);
+    // Upload message to Supabase
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .insert([
+          {
+            id: chatMessage.id,
+            sender: chatMessage.sender,
+            message: chatMessage.message,
+            room_id: roomId,
+            created_at: new Date(chatMessage.timestamp).toISOString(),
+          },
+        ]);
 
-    if (error) {
-      console.error('Error uploading message to Supabase:', error.message);
+      if (error) {
+        console.error('Error uploading message to Supabase:', error.message);
+      }
+    } catch (err) {
+      console.error('Unexpected error uploading message:', err);
     }
-  } catch (err) {
-    console.error('Unexpected error uploading message:', err);
-  }
-};
-
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  };
+
+  const endStream = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) return;
+
+      await fetch(`${BACKEND_URL}/api/rooms/${roomId}/end`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+
+      navigate('/');
+    } catch (error) {
+      console.error('Failed to end stream:', error);
     }
   };
 
@@ -121,15 +182,38 @@ function ChatPanel() {
       <div className="bg-gray-800 border-b border-gray-700 p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/')}
+              className="p-2 hover:bg-gray-700 rounded-lg transition"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <MessageSquare className="w-6 h-6 text-blue-500" />
             <div>
-              <h1 className="text-lg font-semibold text-white">{DEFAULT_ROOM}</h1>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Users className="w-4 h-4" />
-                <span>{participantCount} participant{participantCount !== 1 ? 's' : ''}</span>
+              <h1 className="text-lg font-semibold text-white">
+                {roomInfo?.title || 'Chat Room'}
+              </h1>
+              <div className="flex items-center gap-3 text-sm text-gray-400">
+                <div className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                  <span>{participantCount} participant{participantCount !== 1 ? 's' : ''}</span>
+                </div>
+                {roomInfo && (
+                  <span className="text-gray-500">• {roomInfo.game}</span>
+                )}
               </div>
             </div>
           </div>
+          
+          {isStreamer && (
+            <button
+              onClick={endStream}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition"
+            >
+              <StopCircle className="w-4 h-4" />
+              <span className="text-sm font-medium">End Stream</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -190,6 +274,8 @@ function ChatPanel() {
 
 // Main Component
 export default function TextOnlyLivestream() {
+  const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState('');
   const [wsUrl, setWsUrl] = useState('');
@@ -197,11 +283,16 @@ export default function TextOnlyLivestream() {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState('');
   const [isInRoom, setIsInRoom] = useState(false);
+  const [roomInfo, setRoomInfo] = useState<Room | null>(null);
+  const [isStreamer, setIsStreamer] = useState(false);
 
-  // Check authentication on mount
+  // Check authentication and load room info
   useEffect(() => {
     checkAuth();
-  }, []);
+    if (roomId) {
+      loadRoomInfo();
+    }
+  }, [roomId]);
 
   const checkAuth = async () => {
     try {
@@ -221,9 +312,27 @@ export default function TextOnlyLivestream() {
     }
   };
 
+  const loadRoomInfo = async () => {
+    if (!roomId) return;
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/rooms/${roomId}`);
+      
+      if (!response.ok) {
+        throw new Error('Room not found');
+      }
+
+      const data = await response.json();
+      setRoomInfo(data.room);
+    } catch (err) {
+      console.error('Failed to load room:', err);
+      setError('Room not found');
+    }
+  };
+
   const joinRoom = async () => {
-    if (!user) {
-      setError('Please sign in first');
+    if (!user || !roomId) {
+      setError('Invalid request');
       return;
     }
 
@@ -244,7 +353,7 @@ export default function TextOnlyLivestream() {
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          roomName: DEFAULT_ROOM,
+          roomName: roomId,
           participantName: user.email.split('@')[0],
           participantId: user.id
         })
@@ -258,6 +367,7 @@ export default function TextOnlyLivestream() {
       const data = await response.json();
       setToken(data.token);
       setWsUrl(data.wsUrl);
+      setIsStreamer(roomInfo?.streamer_id === user.id);
       setIsInRoom(true);
     } catch (err) {
       console.error('Failed to join room:', err);
@@ -271,6 +381,7 @@ export default function TextOnlyLivestream() {
     setToken('');
     setWsUrl('');
     setIsInRoom(false);
+    navigate('/');
   };
 
   // Loading state
@@ -298,6 +409,28 @@ export default function TextOnlyLivestream() {
     );
   }
 
+  // Room not found
+  if (!roomInfo && !loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+        <div className="bg-gray-800 rounded-lg p-8 w-full max-w-md text-center">
+          <h1 className="text-2xl font-bold text-white mb-4">
+            Room Not Found
+          </h1>
+          <p className="text-gray-400 mb-6">
+            This stream may have ended or doesn't exist
+          </p>
+          <button
+            onClick={() => navigate('/')}
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // In room - Show chat interface
   if (isInRoom && token && wsUrl) {
     return (
@@ -309,7 +442,7 @@ export default function TextOnlyLivestream() {
         connect={true}
         onDisconnected={leaveRoom}
       >
-        <ChatPanel />
+        <ChatPanel roomId={roomId!} roomInfo={roomInfo} isStreamer={isStreamer} />
         <RoomAudioRenderer />
       </LiveKitRoom>
     );
@@ -324,11 +457,11 @@ export default function TextOnlyLivestream() {
         </div>
 
         <h1 className="text-2xl font-bold text-white text-center mb-2">
-          Welcome, {user.email.split('@')[0]}!
+          {roomInfo?.title}
         </h1>
         
         <p className="text-gray-400 text-center mb-6">
-          Join the conversation with text messages only
+          Hosted by {roomInfo?.streamer_name}
         </p>
 
         {error && (
@@ -357,12 +490,19 @@ export default function TextOnlyLivestream() {
 
         <div className="mt-6 p-4 bg-gray-700 rounded-lg">
           <p className="text-sm text-gray-300">
-            <strong>Room:</strong> {DEFAULT_ROOM}
+            <strong>Category:</strong> {roomInfo?.game}
           </p>
           <p className="text-sm text-gray-300 mt-1">
             <strong>Mode:</strong> Text-only chat
           </p>
         </div>
+
+        <button
+          onClick={() => navigate('/')}
+          className="w-full mt-4 px-4 py-2 text-gray-400 hover:text-white transition"
+        >
+          Back to Home
+        </button>
       </div>
     </div>
   );
