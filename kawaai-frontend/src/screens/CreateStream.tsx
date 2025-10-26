@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../supabaseConfig";
-import { Video, Sparkles, Loader2, Check, Gamepad2, Music, Palette, Cpu, Heart } from "lucide-react";
+import { Video, Sparkles, Loader2, Check, Gamepad2, Music, Palette, Cpu, Heart, Star } from "lucide-react";
+import Live2DCharacter from '../components/Live2DCharacter';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
@@ -16,6 +17,81 @@ interface Avatar {
   tags: string[];
   icon: any;
 }
+
+interface Live2DCharacterData {
+  id: string;
+  name: string;
+  modelDir: string;
+  modelFileName: string;
+  personality: string;
+  description: string;
+  traits: string[];
+  category: string;
+}
+
+// Live2D Characters
+const LIVE2D_CHARACTERS: Live2DCharacterData[] = [
+  {
+    id: "char-haru",
+    name: "Haru",
+    modelDir: "Haru",
+    modelFileName: "Haru.model3.json",
+    personality: "Cheerful & Energetic",
+    description: "A bright and bubbly girl who loves making people smile. She's always full of energy and brings positive vibes to every stream!",
+    traits: ["Friendly", "Optimistic", "Playful"],
+    category: "Wholesome"
+  },
+  {
+    id: "char-mao",
+    name: "Mao",
+    modelDir: "Mao",
+    modelFileName: "Mao.model3.json",
+    personality: "Cool & Confident",
+    description: "A confident and stylish character with a cool demeanor. Mao knows how to keep things interesting with her smooth personality.",
+    traits: ["Confident", "Stylish", "Charismatic"],
+    category: "Cool"
+  },
+  {
+    id: "char-hiyori",
+    name: "Hiyori",
+    modelDir: "Hiyori",
+    modelFileName: "Hiyori.model3.json",
+    personality: "Sweet & Gentle",
+    description: "A kind and gentle soul who creates a warm, welcoming atmosphere. Perfect for cozy, relaxed streams.",
+    traits: ["Kind", "Gentle", "Caring"],
+    category: "Wholesome"
+  },
+  {
+    id: "char-natori",
+    name: "Natori",
+    modelDir: "Natori",
+    modelFileName: "Natori.model3.json",
+    personality: "Elegant & Sophisticated",
+    description: "An elegant and refined character with a sophisticated charm. She's expressive and knows how to capture attention.",
+    traits: ["Elegant", "Expressive", "Refined"],
+    category: "Elegant"
+  },
+  {
+    id: "char-mark",
+    name: "Mark",
+    modelDir: "Mark",
+    modelFileName: "Mark.model3.json",
+    personality: "Laid-back & Cool Guy",
+    description: "A chill and easygoing guy who's great for casual streams. Relaxed vibes and friendly banter are his specialty.",
+    traits: ["Relaxed", "Friendly", "Casual"],
+    category: "Chill"
+  },
+  {
+    id: "char-wanko",
+    name: "Wanko",
+    modelDir: "Wanko",
+    modelFileName: "Wanko.model3.json",
+    personality: "Playful & Fun",
+    description: "A playful character with lots of energy and fun animations. Great for keeping the stream lively and entertaining!",
+    traits: ["Playful", "Energetic", "Fun"],
+    category: "Fun"
+  }
+];
 
 // Hardcoded avatars
 const AVAILABLE_AVATARS: Avatar[] = [
@@ -87,6 +163,7 @@ export default function CreateStream() {
   const [game, setGame] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState<Avatar | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<Live2DCharacterData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,8 +191,8 @@ export default function CreateStream() {
 
     try {
       // Validate required fields
-      if (!title || !game || !selectedAvatar) {
-        setError("Please fill in Stream Title, Game/Topic, and select an Avatar");
+      if (!title || !game || !selectedCharacter) {
+        setError("Please fill in Stream Title, Game/Topic, and select a Character");
         setLoading(false);
         return;
       }
@@ -138,7 +215,6 @@ export default function CreateStream() {
       }
 
       const user = session.user;
-    //   const streamerName = user.user_metadata?.username || user.email;
 
       // Extract YouTube video ID
       const youtubeVideoId = youtubeUrl ? extractYouTubeId(youtubeUrl) : null;
@@ -153,16 +229,20 @@ export default function CreateStream() {
         body: JSON.stringify({
           title,
           game,
-          streamerName: selectedAvatar.avatar_name,
+          streamerName: selectedCharacter.name,
           userId: user.id,
           youtubeVideoId: youtubeVideoId,
-          avatarId: selectedAvatar.id,
-          avatarUrl: selectedAvatar.avatar_url,
-          avatarName: selectedAvatar.avatar_name,
-          avatarPersona: selectedAvatar.persona,
-          avatarBackstory: selectedAvatar.backstory,
-          tags: selectedAvatar.tags,
-          category: selectedAvatar.category
+          avatarId: selectedCharacter.id,
+          avatarUrl: '', // Live2D characters don't have URLs
+          avatarName: selectedCharacter.name,
+          avatarPersona: selectedCharacter.personality,
+          avatarBackstory: selectedCharacter.description,
+          tags: selectedCharacter.traits,
+          category: selectedCharacter.category,
+          live2dModel: {
+            modelDir: selectedCharacter.modelDir,
+            modelFileName: selectedCharacter.modelFileName
+          }
         })
       });
 
@@ -203,43 +283,46 @@ export default function CreateStream() {
 
       <form onSubmit={handleCreateStream} className="max-w-6xl mx-auto px-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Avatar Selection Preview */}
+          {/* Character Selection Preview */}
           <div className="lg:col-span-1">
             <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 sticky top-8">
               <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-400" />
-                Selected Avatar
+                <Star className="w-5 h-5 text-indigo-400" />
+                Selected Character
               </h2>
 
-              {selectedAvatar ? (
+              {selectedCharacter ? (
                 <div className="space-y-4">
-                  {/* Avatar Preview */}
-                  <img
-                    src={selectedAvatar.avatar_url}
-                    alt={selectedAvatar.avatar_name}
-                    className="w-full aspect-square object-cover rounded-xl"
-                  />
+                  {/* Live2D Character Preview */}
+                  <div className="w-full aspect-square bg-gradient-to-br from-purple-900/20 to-blue-900/20 rounded-xl overflow-hidden">
+                    <Live2DCharacter
+                      modelDir={selectedCharacter.modelDir}
+                      modelFileName={selectedCharacter.modelFileName}
+                      width="100%"
+                      height="100%"
+                    />
+                  </div>
                   
                   <div>
                     <h3 className="text-lg font-semibold text-white">
-                      {selectedAvatar.avatar_name}
+                      {selectedCharacter.name}
                     </h3>
                     
                     <p className="text-sm text-indigo-400 mt-1">
-                      {selectedAvatar.persona}
+                      {selectedCharacter.personality}
                     </p>
                     
                     <p className="text-sm text-gray-400 mt-2">
-                      {selectedAvatar.backstory}
+                      {selectedCharacter.description}
                     </p>
 
                     <div className="flex flex-wrap gap-2 mt-3">
-                      {selectedAvatar.tags.map((tag, idx) => (
+                      {selectedCharacter.traits.map((trait, idx) => (
                         <span
                           key={idx}
-                          className="px-2 py-1 bg-gray-700 text-xs rounded-full text-gray-300"
+                          className="px-2 py-1 bg-purple-700/30 text-xs rounded-full text-purple-300 border border-purple-500/30"
                         >
-                          {tag}
+                          {trait}
                         </span>
                       ))}
                     </div>
@@ -247,17 +330,17 @@ export default function CreateStream() {
 
                   <button
                     type="button"
-                    onClick={() => setSelectedAvatar(null)}
+                    onClick={() => setSelectedCharacter(null)}
                     className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition text-sm"
                   >
-                    Change Avatar
+                    Change Character
                   </button>
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <Sparkles className="w-12 h-12 mx-auto mb-3 text-gray-600" />
+                  <Star className="w-12 h-12 mx-auto mb-3 text-gray-600" />
                   <p className="text-gray-400 text-sm">
-                    Select an avatar from the list below
+                    Select a Live2D character from the list below
                   </p>
                 </div>
               )}
@@ -323,53 +406,67 @@ export default function CreateStream() {
               </div>
             </div>
 
-            {/* Avatar Selection Grid */}
+            {/* Live2D Character Selection Grid */}
             <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-              <h2 className="text-xl font-bold mb-4">Choose Your AI Avatar</h2>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5 text-purple-400" />
+                Choose Your Live2D Character
+              </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {AVAILABLE_AVATARS.map((avatar) => {
-                  const IconComponent = avatar.icon;
-                  return (
-                    <button
-                      key={avatar.id}
-                      type="button"
-                      onClick={() => setSelectedAvatar(avatar)}
-                      className={`relative p-4 rounded-xl border-2 transition text-left ${
-                        selectedAvatar?.id === avatar.id
-                          ? 'border-indigo-500 bg-indigo-500/10'
-                          : 'border-gray-600 bg-gray-700/50 hover:border-gray-500'
-                      }`}
-                    >
-                      {selectedAvatar?.id === avatar.id && (
-                        <div className="absolute top-2 right-2 bg-indigo-500 rounded-full p-1">
-                          <Check className="w-4 h-4 text-white" />
-                        </div>
-                      )}
+                {LIVE2D_CHARACTERS.map((character) => (
+                  <button
+                    key={character.id}
+                    type="button"
+                    onClick={() => setSelectedCharacter(character)}
+                    className={`relative p-4 rounded-xl border-2 transition text-left ${
+                      selectedCharacter?.id === character.id
+                        ? 'border-purple-500 bg-purple-500/10'
+                        : 'border-gray-600 bg-gray-700/50 hover:border-purple-500/50'
+                    }`}
+                  >
+                    {selectedCharacter?.id === character.id && (
+                      <div className="absolute top-2 right-2 bg-purple-500 rounded-full p-1">
+                        <Check className="w-4 h-4 text-white" />
+                      </div>
+                    )}
 
-                      <div className="flex gap-3">
-                        <img
-                          src={avatar.avatar_url}
-                          alt={avatar.avatar_name}
-                          className="w-16 h-16 rounded-lg object-cover"
+                    <div className="flex gap-3">
+                      {/* Live2D Character Mini Preview */}
+                      <div className="w-24 h-24 rounded-lg overflow-hidden bg-gradient-to-br from-purple-900/20 to-blue-900/20 flex-shrink-0">
+                        <Live2DCharacter
+                          modelDir={character.modelDir}
+                          modelFileName={character.modelFileName}
+                          width="100%"
+                          height="100%"
                         />
+                      </div>
 
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-white truncate flex items-center gap-2">
-                            <IconComponent className="w-4 h-4 text-indigo-400" />
-                            {avatar.avatar_name}
-                          </h3>
-                          <p className="text-xs text-gray-400 mt-1 line-clamp-2">
-                            {avatar.persona}
-                          </p>
-                          <span className="inline-block mt-2 px-2 py-0.5 bg-gray-600 text-xs rounded text-gray-300">
-                            {avatar.category}
-                          </span>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-white flex items-center gap-2">
+                          <Star className="w-4 h-4 text-purple-400" />
+                          {character.name}
+                        </h3>
+                        <p className="text-xs text-purple-300 mt-1">
+                          {character.personality}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-2 line-clamp-2">
+                          {character.description}
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {character.traits.slice(0, 2).map((trait, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 bg-purple-700/30 text-xs rounded-full text-purple-300"
+                            >
+                              {trait}
+                            </span>
+                          ))}
                         </div>
                       </div>
-                    </button>
-                  );
-                })}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -391,7 +488,7 @@ export default function CreateStream() {
               </button>
               <button
                 type="submit"
-                disabled={loading || !selectedAvatar}
+                disabled={loading || !selectedCharacter}
                 className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition font-semibold flex items-center gap-2"
               >
                 {loading ? (

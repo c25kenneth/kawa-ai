@@ -10,6 +10,7 @@ import {
 import { MessageSquare, Send, Users, Loader2, ArrowLeft, StopCircle } from 'lucide-react';
 import { supabase } from '../../supabaseConfig';
 import { useParams, useNavigate } from 'react-router-dom';
+import Live2DCharacter from '../components/Live2DCharacter';
 
 const BACKEND_URL = 'http://127.0.0.1:5000';
 
@@ -35,6 +36,10 @@ interface Room {
   is_live: boolean;
   viewer_count: number;
   youtube_video_id?: string;
+  live2d_model?: {
+    modelDir: string;
+    modelFileName: string;
+  };
 }
 
 // YouTube Player Component
@@ -231,6 +236,18 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
               <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
               <p className="text-gray-400">No video playing</p>
             </div>
+          </div>
+        )}
+
+        {/* Live2D Character Overlay - Left Side */}
+        {roomInfo?.live2d_model && (
+          <div className="absolute bottom-0 left-8 w-[450px] h-[550px] pointer-events-auto z-20 overflow-visible">
+            <Live2DCharacter
+              modelDir={roomInfo.live2d_model.modelDir}
+              modelFileName={roomInfo.live2d_model.modelFileName}
+              width="100%"
+              height="100%"
+            />
           </div>
         )}
 

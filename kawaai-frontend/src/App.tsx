@@ -7,6 +7,7 @@ import LiveStreamViewer from "./screens/VideoStream";
 import CreateStream from "./screens/CreateStream";
 import TextOnlyLivestream from "./screens/VideoStream";
 import StreamReplay from "./screens/StreamReplay";
+import Live2DTest from "./screens/Live2DTest";
 // import StartStreamPage from './screens/StartStream';
 
 function App() {
@@ -46,6 +47,14 @@ function App() {
           element={
             <ProtectedRoute>
               <StreamReplay />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/live2d-test" 
+          element={
+            <ProtectedRoute>
+              <Live2DTest />
             </ProtectedRoute>
           } 
         />

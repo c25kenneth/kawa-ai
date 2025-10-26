@@ -82,7 +82,8 @@ def create_room():
         game = data.get('game')
         streamer_name = data.get('streamerName')
         user_id = data.get('userId')
-        youtube_video_id = data.get('youtubeVideoId')  # Extract YouTube video ID
+        youtube_video_id = data.get('youtubeVideoId')
+        live2d_model = data.get('live2dModel')  # Get Live2D model data
         
         if not all([title, game, streamer_name, user_id]):
             return jsonify({"error": "Missing required fields"}), 400
@@ -97,7 +98,8 @@ def create_room():
             "game": game,
             "streamer_name": streamer_name,
             "streamer_id": user_id,
-            "youtube_video_id": youtube_video_id,  # Add to room data
+            "youtube_video_id": youtube_video_id,
+            "live2d_model": live2d_model,  # Store Live2D model data as JSON
             "is_live": True,
             "viewer_count": 0,
             "created_at": "now()"

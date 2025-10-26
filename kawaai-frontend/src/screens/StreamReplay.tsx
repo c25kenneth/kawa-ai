@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Users, ArrowLeft, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../../supabaseConfig';
 import { useParams, useNavigate } from 'react-router-dom';
+import Live2DCharacter from '../components/Live2DCharacter';
 
 const BACKEND_URL = 'http://127.0.0.1:5000';
 
@@ -26,6 +27,10 @@ interface Room {
   youtube_video_id?: string;
   created_at: string;
   ended_at?: string;
+  live2d_model?: {
+    modelDir: string;
+    modelFileName: string;
+  };
 }
 
 // YouTube Player Component for Replay
@@ -154,6 +159,18 @@ function ChatHistoryPanel({ roomId, roomInfo }: { roomId: string; roomInfo: Room
               <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
               <p className="text-gray-400">No video available</p>
             </div>
+          </div>
+        )}
+
+        {/* Live2D Character Overlay - Left Side */}
+        {roomInfo?.live2d_model && (
+          <div className="absolute bottom-0 left-8 w-[450px] h-[550px] pointer-events-auto z-20 overflow-visible">
+            <Live2DCharacter
+              modelDir={roomInfo.live2d_model.modelDir}
+              modelFileName={roomInfo.live2d_model.modelFileName}
+              width="100%"
+              height="100%"
+            />
           </div>
         )}
 
