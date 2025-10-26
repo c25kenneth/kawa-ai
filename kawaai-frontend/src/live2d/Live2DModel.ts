@@ -34,12 +34,18 @@ export class Live2DModel extends CubismUserModel {
   private _eyeBlinkIds: csmVector<CubismIdHandle>;
   private _lipSyncIds: csmVector<CubismIdHandle>;
 
+  private _lipSyncValue: number = 0;
+
   constructor() {
     super();
     this._expressions = new csmMap<string, ACubismMotion>();
     this._motions = new csmMap<string, ACubismMotion>();
     this._eyeBlinkIds = new csmVector<CubismIdHandle>();
     this._lipSyncIds = new csmVector<CubismIdHandle>();
+  }
+
+  public setLipSyncValue(value: number): void {
+    this._lipSyncValue = value;
   }
 
   /**
@@ -295,12 +301,19 @@ export class Live2DModel extends CubismUserModel {
             }
 
             gl.bindTexture(gl.TEXTURE_2D, texture);
+            
+            // Use UNPACK_PREMULTIPLY_ALPHA_WEBGL to properly handle alpha
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            
+            // Set texture parameters for quality
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-            gl.bindTexture(gl.TEXTURE_2D, null);
+            gl.generateMipmap(gl.TEXTURE_2D);
+            
+            gl.bindTexture(gl.TEXTURE_2D, null)
 
             renderer.bindTexture(i, texture);
             console.log(`Texture ${i + 1}/${textureCount} loaded: ${texturePath}`);
@@ -547,8 +560,7 @@ export class Live2DModel extends CubismUserModel {
 
     // Lip sync
     if (this._lipsync && this._idParamMouthOpenY) {
-      const value = 0; // Real lipsync value should be provided
-      this._model.addParameterValueById(this._idParamMouthOpenY, value, 0.8);
+      this._model.addParameterValueById(this._idParamMouthOpenY, this._lipSyncValue, 0.8);
     }
 
     // Eye blink
@@ -715,7 +727,6 @@ export class Live2DModel extends CubismUserModel {
    */
   public release(): void {
     if (this._modelSetting) {
-      this._modelSetting.release();
       this._modelSetting = undefined;
     }
 
