@@ -8,7 +8,8 @@ import io
 import json
 import logging
 import re
-from livekit import rtc
+import sys
+from livekit import rtc, api
 from livekit.agents import JobContext, Worker, WorkerOptions
 from fish_audio_sdk import Session, TTSRequest
 
@@ -33,6 +34,9 @@ EMOJI_PATTERN = re.compile(
 # --- Configuration from .env ---
 FISH_AUDIO_SECRET_KEY = os.getenv("FISH_AUDIO_SECRET_KEY")
 ENGLISH_FEMALE = os.getenv("ENGLISH_FEMALE_SOFT")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 
 # --- Helper Functions ---
 def strip_emojis(text: str) -> str:
@@ -63,33 +67,135 @@ class TTSSpeakerAgent:
         # Control flags
         self._running = True
         
+        # Backend-sender room for persistent connection
+        self._backend_room = None
+        self._backend_connection_task = None
+        
         print(f"DEBUG: Agent initialized with reference_id: {ENGLISH_FEMALE}")
 
     def _on_participant_connected(self, participant: rtc.RemoteParticipant):
         print(f"👤 Participant connected: {participant.identity} (SID: {participant.sid})")
         print(f"   Total participants now: {len(self.room.remote_participants) + 1}")
+        
+        # Check if backend-sender exists, if not, create one
+        asyncio.create_task(self._ensure_backend_sender())
 
     def _on_participant_disconnected(self, participant: rtc.RemoteParticipant):
         print(f"👤 Participant disconnected: {participant.identity}")
         print(f"   Total participants now: {len(self.room.remote_participants) + 1}")
+        
+        # If backend-sender for this room left, recreate it
+        backend_identity = f"backend-sender-{self.room.name}"
+        if participant.identity == backend_identity:
+            print(f"⚠️  Backend-sender left the room, recreating...")
+            asyncio.create_task(self._ensure_backend_sender())
+
+    async def _ensure_backend_sender(self):
+        """Ensure backend-sender participant exists in the room."""
+        try:
+            # Create unique backend-sender identity per room
+            backend_identity = f"backend-sender-{self.room.name}"
+            
+            # Check if backend-sender already exists
+            backend_exists = any(
+                p.identity == backend_identity
+                for p in self.room.remote_participants.values()
+            )
+            
+            if backend_exists:
+                print(f"✓ Backend-sender already in room")
+                return
+            
+            # Check if we already have a backend room connection
+            if self._backend_room and hasattr(self._backend_room, 'isconnected') and self._backend_room.isconnected:
+                print(f"✓ Backend-sender connection already active")
+                return
+            
+            print(f"🔧 Creating persistent backend-sender for room '{self.room.name}'...")
+            
+            # Create unique backend-sender identity per room to avoid conflicts
+            backend_identity = f"backend-sender-{self.room.name}"
+            
+            # Create token for backend-sender
+            token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+            token.with_identity(backend_identity)
+            token.with_name(f"Backend LLM Sender ({self.room.name})")
+            token.with_grants(api.VideoGrants(
+                room_join=True,
+                room=self.room.name,
+                can_publish=True,
+                can_subscribe=True,
+                can_publish_data=True,
+            ))
+            jwt_token = token.to_jwt()
+            
+            # Create new room connection for backend-sender
+            self._backend_room = rtc.Room()
+            
+            # Connect with timeout
+            await asyncio.wait_for(
+                self._backend_room.connect(LIVEKIT_URL, jwt_token),
+                timeout=10.0
+            )
+            
+            print(f"✅ Backend-sender joined room '{self.room.name}' persistently")
+            
+            # Keep the connection alive
+            self._backend_connection_task = asyncio.create_task(self._keep_backend_alive())
+            
+        except asyncio.TimeoutError:
+            print(f"❌ Timeout connecting backend-sender to room")
+        except Exception as e:
+            print(f"❌ Error ensuring backend-sender: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+
+    async def _keep_backend_alive(self):
+        """Keep backend-sender connection alive while agent is running."""
+        try:
+            while self._running and self._backend_room:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+                # Verify connection is still alive
+                if not self._backend_room.isconnected:
+                    print(f"⚠️  Backend-sender connection lost, reconnecting...")
+                    await self._ensure_backend_sender()
+                    break
+                    
+        except Exception as e:
+            print(f"Error in keep_backend_alive: {e}", file=sys.stderr)
 
     def _on_data_received(self, data: rtc.DataPacket):
         """Handle incoming data packets from the backend."""
         async def _process_data():
             try:
                 text = data.data.decode("utf-8")
-                json_data = json.loads(text)
                 
-                if "text" in json_data:
-                    text_chunk = json_data["text"]
-                    # Strip emojis before processing
-                    text_chunk = strip_emojis(text_chunk)
-                    if text_chunk.strip():  # Only queue if there's text left after stripping
-                        await self._text_chunk_queue.put(text_chunk)
-                elif json_data.get("type") == "flush":
-                    await self._text_chunk_queue.put({"type": "flush"})
-                else:
-                    logging.warning(f"Received unknown JSON data: {json_data}")
+                # Log received data (sender info might not be available)
+                print(f"📥 Received data: {text[:50]}...")
+                
+                # Try to parse as JSON (from backend LLM)
+                try:
+                    json_data = json.loads(text)
+                    
+
+                    
+                    if "text" in json_data:
+                        text_chunk = json_data["text"]
+                        # Strip emojis before processing
+                        text_chunk = strip_emojis(text_chunk)
+                        if text_chunk.strip():  # Only queue if there's text left after stripping
+                            print(f"✓ Queuing text chunk: {text_chunk[:30]}...")
+                            await self._text_chunk_queue.put(text_chunk)
+                    elif json_data.get("type") == "flush":
+                        await self._text_chunk_queue.put({"type": "flush"})
+                    else:
+                        logging.warning(f"Received unknown JSON data: {json_data}")
+                
+                except json.JSONDecodeError:
+                    # Not JSON - probably a user chat message, ignore it
+                    logging.debug(f"Ignoring non-JSON data (user chat message): {text[:50]}...")
+                    
             except Exception as e:
                 logging.error(f"Error processing received data: {e}")
         
@@ -121,6 +227,10 @@ class TTSSpeakerAgent:
         except Exception as e:
             print(f"✗ Error publishing audio track: {e}")
             return
+
+        # Ensure backend-sender is in the room
+        print("🔧 Ensuring backend-sender participant is present...")
+        await self._ensure_backend_sender()
 
         # Start the pipeline tasks
         text_task = asyncio.create_task(self._text_buffering_pipeline())
@@ -176,6 +286,15 @@ class TTSSpeakerAgent:
             await asyncio.wait_for(self._sentence_queue.put(None), timeout=1.0)
         except asyncio.TimeoutError:
             print("Timeout while signaling queues to stop")
+        
+        # Disconnect backend-sender
+        if self._backend_room and self._backend_room.isconnected:
+            print("Disconnecting backend-sender...")
+            await self._backend_room.disconnect()
+        
+        # Cancel keep-alive task
+        if self._backend_connection_task:
+            self._backend_connection_task.cancel()
         
         # Disconnect from room
         await self.room.disconnect()

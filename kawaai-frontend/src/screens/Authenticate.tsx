@@ -6,15 +6,64 @@ import {supabase} from '../../supabaseConfig';
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
   });
 
-  const handleSubmit = () => {
-    console.log('Form submitted:', formData);
-    alert(`${isLogin ? 'Login' : 'Sign up'} successful!`);
+  const handleSubmit = async () => {
+    // Basic validation
+    if (!formData.email || !formData.password) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    if (!isLogin && !formData.name) {
+      setError('Please enter your full name');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      if (isLogin) {
+        // Sign in
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+        
+        if (error) throw error;
+        
+        console.log('Login successful:', data);
+        // Redirect will happen automatically via useEffect
+      } else {
+        // Sign up
+        const { data, error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              full_name: formData.name,
+            }
+          }
+        });
+        
+        if (error) throw error;
+        
+        console.log('Sign up successful:', data);
+        alert('Please check your email to confirm your account!');
+      }
+    } catch (error: any) {
+      console.error('Auth error:', error);
+      setError(error.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleChange = (name: string, value: string) => {
@@ -22,6 +71,37 @@ export default function AuthPage() {
       ...formData,
       [name]: value,
     });
+  };
+
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      setError('Please enter your email address first');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+
+      if (error) throw error;
+
+      alert('Password reset email sent! Check your inbox.');
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      setError(error.message || 'Failed to send reset email');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSubmit();
+    }
   };
 
   useEffect(() => {
@@ -59,6 +139,12 @@ export default function AuthPage() {
           </p>
         </div>
 
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            {error}
+          </div>
+        )}
+
         <div className="space-y-5">
           {!isLogin && (
             <div>
@@ -73,6 +159,7 @@ export default function AuthPage() {
                   name="name"
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
+                  onKeyPress={handleKeyPress}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
                   placeholder="John Doe"
                 />
@@ -92,6 +179,7 @@ export default function AuthPage() {
                 name="email"
                 value={formData.email}
                 onChange={(e) => handleChange('email', e.target.value)}
+                onKeyPress={handleKeyPress}
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
                 placeholder="you@example.com"
               />
@@ -110,6 +198,7 @@ export default function AuthPage() {
                 name="password"
                 value={formData.password}
                 onChange={(e) => handleChange('password', e.target.value)}
+                onKeyPress={handleKeyPress}
                 className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
                 placeholder="••••••••"
               />
@@ -129,7 +218,11 @@ export default function AuthPage() {
                 <input type="checkbox" className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
                 <span className="ml-2 text-gray-600">Remember me</span>
               </label>
-              <button className="text-indigo-600 hover:text-indigo-700 font-medium">
+              <button 
+                onClick={handleForgotPassword}
+                disabled={loading}
+                className="text-indigo-600 hover:text-indigo-700 font-medium disabled:text-gray-400"
+              >
                 Forgot password?
               </button>
             </div>
@@ -137,9 +230,10 @@ export default function AuthPage() {
 
           <button
             onClick={handleSubmit}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition duration-200 shadow-md hover:shadow-lg"
+            disabled={loading || !formData.email || !formData.password || (!isLogin && !formData.name)}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition duration-200 shadow-md hover:shadow-lg"
           >
-            {isLogin ? 'Sign In' : 'Create Account'}
+            {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Create Account')}
           </button>
         </div>
 

@@ -12,7 +12,7 @@ import { supabase } from '../../supabaseConfig';
 import { useParams, useNavigate } from 'react-router-dom';
 import Live2DCharacter from '../components/Live2DCharacter';
 
-const BACKEND_URL = 'http://127.0.0.1:5000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001';
 
 interface User {
   id: string;
@@ -83,6 +83,7 @@ function YouTubePlayer({ videoId }: { videoId: string }) {
 function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo: Room | null; isStreamer: boolean }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const { localParticipant } = useLocalParticipant();
   const chatEndRef = useRef<HTMLDivElement>(null);
   const room = useRoomContext();
@@ -142,16 +143,49 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
   }, [messages]);
 
   const sendMessage = async () => {
-  if (!input.trim() || !localParticipant) return;
+  if (!input.trim()) return;
+
+  // Enable audio on first message (user interaction unlocks autoplay)
+  if (!audioEnabled) {
+    try {
+      // Get all audio elements and play them to unlock
+      const audioElements = document.querySelectorAll('audio');
+      for (const audio of audioElements) {
+        await audio.play().catch(() => {});
+      }
+      
+      // Also unlock AudioContext
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      audioContext.close();
+      
+      setAudioEnabled(true);
+      console.log('✅ Audio unlocked on first message');
+    } catch (err) {
+      console.warn('Could not unlock audio:', err);
+    }
+  }
 
   const messageText = input.trim();
-  const encoder = new TextEncoder();
-  const data = encoder.encode(messageText);
-
-  localParticipant.publishData(data, {
-    reliable: true,
-    topic: 'chat',
-  });
+  
+  // Try to publish via LiveKit, but don't block if it fails
+  if (localParticipant && room.state === 'connected') {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(messageText);
+      await localParticipant.publishData(data, {
+        reliable: true,
+        topic: 'chat',
+      });
+      console.log('✓ Published message via LiveKit');
+    } catch (err) {
+      console.warn('LiveKit publish failed (continuing anyway):', err);
+    }
+  } else {
+    console.warn('LiveKit not connected, sending via backend only');
+  }
 
   // Get the current authenticated user
   const { data: { user } } = await supabase.auth.getUser();
@@ -186,6 +220,30 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
 
     if (error) {
       console.error('Error uploading message to Supabase:', error.message);
+    }
+
+    // Send to /chat endpoint for LLM + TTS processing
+    try {
+      const chatResponse = await fetch(`${BACKEND_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          room_name: roomId,
+          text: messageText,
+          persona: roomInfo?.avatar_persona || '',  // Pass character persona
+          backstory: roomInfo?.avatar_backstory || '',  // Pass character backstory
+        }),
+      });
+
+      if (!chatResponse.ok) {
+        console.error('Failed to send message to LLM:', await chatResponse.text());
+      } else {
+        console.log('✓ Message sent to LLM for processing');
+      }
+    } catch (chatErr) {
+      console.error('Error sending message to /chat endpoint:', chatErr);
     }
   } catch (err) {
     console.error('Unexpected error uploading message:', err);
@@ -240,14 +298,16 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
         )}
 
         {/* Live2D Character Overlay - Left Side */}
-        {roomInfo?.live2d_model && (
-          <div className="absolute bottom-0 left-8 w-[450px] h-[550px] pointer-events-auto z-20 overflow-visible">
-            <Live2DCharacter
-              modelDir={roomInfo.live2d_model.modelDir}
-              modelFileName={roomInfo.live2d_model.modelFileName}
-              width="100%"
-              height="100%"
-            />
+        {roomInfo && (
+          <div className="absolute bottom-0 left-0 w-[600px] h-[600px] pointer-events-none z-40 overflow-visible">
+            <div className="pointer-events-auto">
+              <Live2DCharacter
+                modelDir={roomInfo.live2d_model?.modelDir || 'live2d/Haru'}
+                modelFileName={roomInfo.live2d_model?.modelFileName || 'Haru.model3.json'}
+                width="100%"
+                height="100%"
+              />
+            </div>
           </div>
         )}
 
@@ -368,6 +428,10 @@ export default function TextOnlyLivestream() {
   const [isInRoom, setIsInRoom] = useState(false);
   const [roomInfo, setRoomInfo] = useState<Room | null>(null);
   const [isStreamer, setIsStreamer] = useState(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(() => {
+    // Check if audio was previously unlocked
+    return localStorage.getItem('kawa_audio_unlocked') === 'true';
+  });
 
   useEffect(() => {
     checkAuth();
@@ -375,6 +439,34 @@ export default function TextOnlyLivestream() {
       loadRoomInfo();
     }
   }, [roomId]);
+
+  // Auto-join room when user and room info are loaded
+  useEffect(() => {
+    if (user && roomInfo && !isInRoom && !joining && !token) {
+      console.log('🚀 Auto-joining room...');
+      
+      // Try to unlock audio early if not already unlocked
+      if (!audioUnlocked) {
+        const unlockAudio = async () => {
+          try {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            if (audioContext.state === 'suspended') {
+              await audioContext.resume();
+            }
+            audioContext.close();
+            setAudioUnlocked(true);
+            localStorage.setItem('kawa_audio_unlocked', 'true');
+            console.log('✅ Audio auto-unlocked on page load');
+          } catch (err) {
+            console.log('⚠️ Audio needs user interaction to unlock');
+          }
+        };
+        unlockAudio();
+      }
+      
+      joinRoom();
+    }
+  }, [user, roomInfo, isInRoom, joining, token]);
 
   const checkAuth = async () => {
     try {
@@ -422,6 +514,9 @@ export default function TextOnlyLivestream() {
     setError('');
 
     try {
+      // Note: Audio will unlock when user sends their first message or clicks enable audio
+      console.log('🎵 Audio will be enabled on first user interaction');
+
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
@@ -452,18 +547,23 @@ export default function TextOnlyLivestream() {
       setIsStreamer(roomInfo?.streamer_id === user.id);
       setIsInRoom(true);
     } catch (err) {
-      console.error('Failed to join room:', err);
+      console.error('❌ Failed to join room:', err);
       setError(err instanceof Error ? err.message : 'Failed to join room');
     } finally {
       setJoining(false);
     }
   };
 
-  const leaveRoom = () => {
-    setToken('');
-    setWsUrl('');
-    setIsInRoom(false);
-    navigate('/');
+  const leaveRoom = (reason?: any) => {
+    console.log('🚪 leaveRoom called with reason:', reason);
+    
+    // Don't navigate away on refresh or temporary disconnects
+    // Only leave if user explicitly navigates away
+    if (reason && typeof reason === 'object' && reason.code !== undefined) {
+      // Only navigate away on user-initiated leave (clicking back button, etc)
+      // Don't navigate on page refresh or network issues
+      console.log('Disconnect detected, but staying in room for auto-reconnect...');
+    }
   };
 
   if (loading) {
@@ -510,75 +610,138 @@ export default function TextOnlyLivestream() {
     );
   }
 
-  if (isInRoom && token && wsUrl) {
-    return (
-      <LiveKitRoom
-        video={false}
-        audio={false}
-        token={token}
-        serverUrl={wsUrl}
-        connect={true}
-        onDisconnected={leaveRoom}
-      >
+  // Show stream if we're in the room (with or without LiveKit)
+  if (isInRoom) {
+    // If we have LiveKit token, use LiveKitRoom
+    if (token && wsUrl) {
+      console.log('🎬 Rendering with LiveKitRoom:', { wsUrl, hasToken: !!token });
+      return (
+      <div className="relative w-full h-full">
+        <LiveKitRoom
+          video={false}
+          audio={false}
+          token={token}
+          serverUrl={wsUrl}
+          connect={true}
+          options={{
+            adaptiveStream: true,
+            dynacast: true,
+            rtcConfig: {
+              iceServers: [
+                {
+                  urls: 'stun:stun.l.google.com:19302',
+                },
+              ],
+              iceTransportPolicy: 'all',
+            },
+          }}
+          onConnected={() => {
+            console.log('✅ LiveKit connected successfully!');
+            console.log('🔊 Click anywhere to enable audio');
+          }}
+          onDisconnected={leaveRoom}
+          onError={(error) => {
+            console.error('❌ LiveKit Room Error:', error);
+            console.error('Error details:', {
+              message: error.message,
+              name: error.name,
+              stack: error.stack
+            });
+            console.log('⚠️ Continuing without LiveKit connection...');
+            console.log('💡 Try using Chrome if you want audio - Firefox has stricter WebRTC policies');
+          }}
+        >
         <ChatPanel roomId={roomId!} roomInfo={roomInfo} isStreamer={isStreamer} />
         <RoomAudioRenderer />
       </LiveKitRoom>
+      
+      {/* Invisible Audio Unlock Overlay - unlocks on any click */}
+      {!audioUnlocked && (
+        <div 
+          className="absolute inset-0 bg-black/30 z-50"
+          onClick={async (e) => {
+            e.stopPropagation();
+            try {
+              // Unlock all audio elements
+              const audioElements = document.querySelectorAll('audio');
+              for (const audio of audioElements) {
+                await audio.play().catch(() => {});
+              }
+              
+              // Unlock AudioContext
+              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+              if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+              }
+              audioContext.close();
+              
+              setAudioUnlocked(true);
+              localStorage.setItem('kawa_audio_unlocked', 'true');
+              console.log('✅ Audio unlocked - you can now hear TTS!');
+            } catch (err) {
+              console.warn('Could not unlock audio:', err);
+              setAudioUnlocked(true);
+              localStorage.setItem('kawa_audio_unlocked', 'true');
+            }
+          }}
+        >
+          {/* Click-through area for Live2D avatar (left side) */}
+          <div className="absolute bottom-0 left-0 w-[500px] h-[600px] pointer-events-none z-10" />
+          
+          {/* Clickable message area in center */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
+            <div className="text-white text-center cursor-pointer">
+              <p className="text-2xl mb-2">🔊</p>
+              <p className="text-lg">Click anywhere to enable audio</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+      );
+    } else {
+      // No LiveKit - just show chat (messages still work via backend)
+      console.log('🎬 Rendering without LiveKit (backend-only mode)');
+      return (
+        <div className="h-screen">
+          <ChatPanel roomId={roomId!} roomInfo={roomInfo} isStreamer={isStreamer} />
+        </div>
+      );
+    }
+  }
+
+  // Show loading state while joining
+  if (joining) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
+          <p className="text-white text-lg">Joining stream...</p>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-lg p-8 w-full max-w-md">
-        <div className="flex items-center justify-center mb-6">
-          <MessageSquare className="w-12 h-12 text-blue-500" />
-        </div>
-
-        <h1 className="text-2xl font-bold text-white text-center mb-2">
-          {roomInfo?.title}
-        </h1>
-        
-        <p className="text-gray-400 text-center mb-6">
-          Hosted by {roomInfo?.streamer_name}
-        </p>
-
+      <div className="bg-gray-800 rounded-lg p-8 w-full max-w-md text-center">
         {error && (
           <div className="mb-4 p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-200 text-sm">
             {error}
           </div>
         )}
-
-        <button
-          onClick={joinRoom}
-          disabled={joining}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
-        >
-          {joining ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Joining...
-            </>
-          ) : (
-            <>
-              <MessageSquare className="w-5 h-5" />
-              Join Stream
-            </>
-          )}
-        </button>
-
-        <div className="mt-6 p-4 bg-gray-700 rounded-lg">
-          <p className="text-sm text-gray-300">
-            <strong>Category:</strong> {roomInfo?.game}
-          </p>
-          {roomInfo?.youtube_video_id && (
-            <p className="text-sm text-gray-300 mt-1">
-              <strong>Video:</strong> YouTube stream
-            </p>
-          )}
+        
+        <div className="flex items-center justify-center mb-6">
+          <MessageSquare className="w-12 h-12 text-blue-500" />
         </div>
+
+        <h1 className="text-2xl font-bold text-white mb-4">
+          {roomInfo?.title || 'Loading...'}
+        </h1>
 
         <button
           onClick={() => navigate('/')}
-          className="w-full mt-4 px-4 py-2 text-gray-400 hover:text-white transition"
+          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition"
         >
           Back to Home
         </button>

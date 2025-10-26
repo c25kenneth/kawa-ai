@@ -13,7 +13,9 @@ import sys
 from supabase import create_client, Client
 import uuid
 from uuid import UUID
-import re
+
+# Import LLM room monitor
+from llm_room_monitor import connect_to_room, disconnect_from_room, room_connections
 
 # --- FLASK APP SETUP ---
 app = Flask(__name__)
@@ -31,50 +33,6 @@ JANITOR_API_KEY = os.getenv("JANITOR_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
-
-# --- HELPER FUNCTIONS ---
-def strip_markdown(text: str) -> str:
-    """
-    Strip markdown formatting for TTS processing.
-    Removes: bold, italic, code, links, headers, lists, etc.
-    """
-    if not text:
-        return text
-    
-    # Remove code blocks (```code```)
-    text = re.sub(r'```[\s\S]*?```', '', text)
-    
-    # Remove inline code (`code`)
-    text = re.sub(r'`[^`]+`', '', text)
-    
-    # Remove links [text](url) - keep the text part
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    
-    # Remove bold/italic (**, *, __, _)
-    text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)  # **bold**
-    text = re.sub(r'\*([^\*]+)\*', r'\1', text)      # *italic*
-    text = re.sub(r'__([^_]+)__', r'\1', text)       # __bold__
-    text = re.sub(r'_([^_]+)_', r'\1', text)         # _italic_
-    
-    # Remove headers (# ## ###)
-    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-    
-    # Remove list markers (- * +)
-    text = re.sub(r'^[\*\-\+]\s+', '', text, flags=re.MULTILINE)
-    
-    # Remove blockquotes (>)
-    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
-    
-    # Remove horizontal rules (---, ***)
-    text = re.sub(r'^[\-\*]{3,}$', '', text, flags=re.MULTILINE)
-    
-    # Remove HTML tags (just in case)
-    text = re.sub(r'<[^>]+>', '', text)
-    
-    # Clean up multiple spaces
-    text = re.sub(r'\s+', ' ', text)
-    
-    return text.strip()
 
 # --- VALIDATION BLOCK ---
 print("Checking environment variables...")
@@ -100,6 +58,72 @@ if not supabase:
 print("Environment variables loaded successfully.")
 
 # --- HELPER FUNCTIONS ---
+import re
+
+def strip_markdown(text: str) -> str:
+    """
+    Aggressively strip all special symbols for TTS processing.
+    Only keeps: letters, numbers, spaces, and basic punctuation.
+    Converts common symbols to words (& → and, @ → at)
+    """
+    if not text:
+        return text
+    
+    # First, convert common symbols to words for TTS
+    text = text.replace('&', ' and ')
+    text = text.replace('@', ' at ')
+    
+    # Handle common markdown patterns
+    # Remove code blocks (```code```)
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    
+    # Remove inline code (`code`)
+    text = re.sub(r'`[^`]+`', '', text)
+    
+    # Remove links [text](url) - keep only the text part
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    
+    # Remove bold/italic markers
+    text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)  # **bold**
+    text = re.sub(r'\*([^\*]+)\*', r'\1', text)      # *italic*
+    text = re.sub(r'__([^_]+)__', r'\1', text)       # __bold__
+    text = re.sub(r'_([^_]+)_', r'\1', text)         # _italic_
+    
+    # Remove headers (# ## ###)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove list markers (- * +)
+    text = re.sub(r'^[\*\-\+]\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove blockquotes (>)
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove horizontal rules (---, ***)
+    text = re.sub(r'^[\-\*]{3,}$', '', text, flags=re.MULTILINE)
+    
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # AGGRESSIVE: Remove ALL special symbols except:
+    # - Letters (a-z, A-Z)
+    # - Numbers (0-9)
+    # - Basic punctuation: . , ! ? : ; ' " - ( ) [ ] { }
+    # - Math/common symbols: $ % = +
+    # - Spaces and newlines
+    allowed_chars = r"[a-zA-Z0-9\s\.\,\!\?\:\;\'\"\-\_\(\)\[\]\{\}\$\%\=\+]"
+    
+    # Keep only allowed characters
+    text = ''.join(re.findall(allowed_chars, text))
+    
+    # Clean up multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Clean up multiple punctuation
+    text = re.sub(r'([\.\,\!\?])\1+', r'\1', text)
+    
+    return text.strip()
+
+
 def get_clean_http_url():
     """Helper to create the correct HTTP URL for the API client."""
     host_part = LIVEKIT_URL.split('//')[-1].lstrip('/')
@@ -147,38 +171,6 @@ def create_room():
         if not all([title, game, streamer_name, user_id]):
             return jsonify({"error": "Missing required fields"}), 400
         
-        # DEV MODE: Ensure user exists (create if needed for dev user)
-        if user_id == '00000000-0000-0000-0000-000000000000':
-            try:
-                print(f"DEBUG: Checking if dev user exists...")
-                # Check if dev user exists
-                existing = supabase.table('users').select('id').eq('id', user_id).execute()
-                print(f"DEBUG: Query result: {existing.data}")
-                
-                if not existing.data or len(existing.data) == 0:
-                    print(f"DEBUG: Dev user not found, creating...")
-                    # Create dev user - try different column combinations
-                    try:
-                        result = supabase.table('users').insert({
-                            'id': user_id,
-                            'email': 'dev@example.com',
-                            'username': 'DevUser'
-                        }).execute()
-                        print(f"✓ Created dev user in database: {result.data}")
-                    except Exception as insert_error:
-                        print(f"DEBUG: First insert failed: {insert_error}")
-                        # Try with minimal fields
-                        result = supabase.table('users').insert({
-                            'id': user_id,
-                        }).execute()
-                        print(f"✓ Created dev user with minimal fields: {result.data}")
-                else:
-                    print(f"DEBUG: Dev user already exists")
-            except Exception as e:
-                print(f"ERROR creating dev user: {e}")
-                import traceback
-                traceback.print_exc()
-        
         # Generate unique room ID
         room_id = str(uuid.uuid4())
         
@@ -197,6 +189,14 @@ def create_room():
         }
         
         result = supabase.table('rooms').insert(room_data).execute()
+        
+        # Extract persona and backstory from data
+        persona = data.get('avatarPersona', '')
+        backstory = data.get('avatarBackstory', '')
+        
+        # Connect LLM monitor to this room
+        asyncio.create_task(connect_to_room(room_id, persona, backstory))
+        print(f"✅ Started LLM monitor for room {room_id}")
         
         return jsonify({
             "roomId": room_id,
@@ -265,7 +265,7 @@ def get_room(room_id):
 
 
 @app.route('/api/rooms/<room_id>/end', methods=['POST'])
-def end_room(room_id):
+async def end_room(room_id):
     """End a stream room"""
     if not supabase:
         return jsonify({"error": "Room management not configured"}), 500
@@ -281,6 +281,11 @@ def end_room(room_id):
             "is_live": False,
             "ended_at": "now()"
         }).eq('id', room_id).execute()
+        
+        # Disconnect LLM monitor from this room
+        if room_id in room_connections:
+            await disconnect_from_room(room_id)
+            print(f"🔌 Disconnected LLM monitor from room {room_id}")
         
         return jsonify({
             "message": "Room ended successfully"
@@ -335,6 +340,7 @@ async def chat():
     
     Backend joins room as participant and sends LLM stream to TTS agent.
     Auto-dispatches agent if not already in room.
+    Supports character persona and backstory for roleplay.
     
     Expected JSON body:
     {
@@ -348,6 +354,8 @@ async def chat():
     data = request.json
     room_name = data.get('room_name')
     text = data.get('text')
+    persona = data.get('persona', '')  # Optional persona/character description
+    backstory = data.get('backstory', '')  # Optional backstory
 
     if not room_name or not text:
         return jsonify({"error": "room_name and text are required"}), 400
@@ -357,9 +365,23 @@ async def chat():
         "Authorization": JANITOR_API_KEY,
         "Content-Type": "application/json",
     }
+    
+    # Build system prompt with persona and length constraints
+    system_prompt = "You are a helpful AI assistant. Keep responses concise and conversational (2-3 sentences max)."
+    
+    if persona:
+        system_prompt = f"{persona} Keep responses short and natural (2-3 sentences max)."
+    
+    if backstory:
+        system_prompt += f" Background: {backstory}"
+    
     llm_data = {
-        "messages": [{"role": "user", "content": text}],
-        "stream": True
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ],
+        "stream": True,
+        "max_tokens": 150  # Limit response length
     }
     
     lkapi = None
@@ -414,10 +436,13 @@ async def chat():
         # NOTE: There's a persistent "backend-sender" created by the agent for monitoring,
         # but we use "llm-sender" here to actually send data (agents can only receive from participants, not server API).
         
+        # Create unique llm-sender identity per room to avoid conflicts
+        llm_sender_identity = f"llm-sender-{room_name}"
+        
         # Create token to join as llm-sender participant
         token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
-        token.with_identity("llm-sender")
-        token.with_name("LLM Data Sender")
+        token.with_identity(llm_sender_identity)
+        token.with_name(f"LLM Data Sender ({room_name[:8]}...)")
         token.with_grants(api.VideoGrants(
             room_join=True,
             room=room_name,
@@ -597,7 +622,7 @@ async def create_token():
 
 
 @app.route('/api/livekit-token/authenticated', methods=['POST'])
-def create_token_authenticated():
+async def create_token_authenticated():
     """
     Protected endpoint for text-only chat (no video/audio publishing)
     Users can only send/receive data messages (text chat)
@@ -615,12 +640,17 @@ def create_token_authenticated():
         participant_name = data.get('participantName')
         participant_id = data.get('participantId', 'unknown')
         
+        # Start LLM monitor for this room if not already running
+        if room_name not in room_connections:
+            print(f"🚀 Starting LLM monitor for existing room {room_name}")
+            await connect_to_room(room_name, "", "")
+        
         # Create LiveKit token with LIMITED permissions
         token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
         token.with_identity(participant_id)
         token.with_name(participant_name)
         
-        # Grant permissions - DISABLED video/audio publishing but ENABLED audio subscribing
+        # Grant permissions - DISABLED video/audio publishing but ENABLED audio subscription
         token.with_grants(api.VideoGrants(
             room_join=True,
             room=room_name,

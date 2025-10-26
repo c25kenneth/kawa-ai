@@ -34,39 +34,39 @@ export class Live2DManager {
     this._viewMatrix.setScreenRect(-2.0, 2.0, -2.0, 2.0);
     
     // Character-specific adjustments
-    let scale = 2.8;
+    let scale = 3.4; // Increased from 2.8 for more zoom
     let translateX = 0.5; // Move all characters much further right
     let translateY = 0.5;
     
     // Adjust for specific characters that are positioned differently
     switch (this._currentModelDir) {
       case 'Wanko':
-        scale = 2.8;
+        scale = 3.4; // Increased zoom
         translateX = 0.95; // Wanko way further right
         translateY = 1.15; // Wanko even higher up
         break;
       case 'Mark':
-        scale = 2.8;
+        scale = 3.4; // Increased zoom
         translateX = 0.95; // Mark way further right
         translateY = 0.95; // Mark way up
         break;
       case 'Hiyori':
-        scale = 2.8;
+        scale = 3.4; // Increased zoom
         translateX = 0.5;
         translateY = 0.45;
         break;
       case 'Mao':
-        scale = 2.8;
+        scale = 3.4; // Increased zoom
         translateX = 0.5;
         translateY = 0.5;
         break;
       case 'Natori':
-        scale = 2.8;
+        scale = 3.4; // Increased zoom
         translateX = 0.5;
         translateY = 0.5;
         break;
       default: // Haru and others
-        scale = 2.8;
+        scale = 3.4; // Increased from 2.8 for more zoom
         translateX = 0.5;
         translateY = 0.5;
         break;

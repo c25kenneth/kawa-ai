@@ -30,6 +30,14 @@ export const Live2DCharacter: React.FC<Live2DCharacterProps> = ({
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   const mousePositionRef = useRef({ x: 0, y: 0 });
+  
+  // Audio analysis for lip sync
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioLevelRef = useRef<number>(0);
+
+  // Audio analysis removed - Live2D works without it
+  // Lip sync can be added back later if needed
 
   useEffect(() => {
     const initializeLive2D = async () => {
@@ -111,6 +119,7 @@ export const Live2DCharacter: React.FC<Live2DCharacterProps> = ({
       }
 
       // Update and draw model
+      // Note: Audio-based lip sync removed for now
       managerRef.current.update(deltaTime);
       managerRef.current.draw();
 
@@ -144,10 +153,21 @@ export const Live2DCharacter: React.FC<Live2DCharacterProps> = ({
     if (canvasRef.current && managerRef.current && glManagerRef.current) {
       const canvas = canvasRef.current;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      
+      // Force square aspect ratio to prevent distortion
+      // Take the larger dimension to maintain quality
+      const size = Math.max(rect.width || 600, rect.height || 600);
+      
+      // Set canvas internal resolution
+      const pixelRatio = window.devicePixelRatio || 1;
+      canvas.width = size * pixelRatio;
+      canvas.height = size * pixelRatio;
+      
+      // Set canvas CSS size (must match internal size / pixelRatio)
+      canvas.style.width = `${size}px`;
+      canvas.style.height = `${size}px`;
 
-      console.log(`Canvas resized: ${canvas.width}x${canvas.height}`);
+      console.log(`Canvas resized to square: ${size}x${size} (internal: ${canvas.width}x${canvas.height})`);
 
       const gl = glManagerRef.current.getGL();
       if (gl) {
@@ -226,13 +246,13 @@ export const Live2DCharacter: React.FC<Live2DCharacterProps> = ({
     <div className={`relative ${className}`} style={{ width, height }}>
       <canvas
         ref={canvasRef}
-        className="w-full h-full"
         style={{ 
           display: 'block',
           width: '100%',
           height: '100%',
           cursor: 'pointer',
-          overflow: 'visible'
+          overflow: 'visible',
+          objectFit: 'contain'
         }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
