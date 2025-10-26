@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Upload, User, FileText, Sparkles, Tag, Globe, Lock, Radio, X, Loader2 } from 'lucide-react';
+import { Upload, User, FileText, Sparkles, Tag, Globe, Lock, Radio, X, Loader2, Video } from 'lucide-react';
 import {supabase} from '../../supabaseConfig';
 
 export default function StartStreamPage() {
@@ -15,6 +15,7 @@ export default function StartStreamPage() {
     language: 'English',
     privacy: 'public',
     streamTitle: '',
+    youtubeUrl: '', // NEW: YouTube URL field
   });
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,6 +37,23 @@ export default function StartStreamPage() {
     });
   };
 
+  // Extract YouTube video ID from URL
+  const extractYouTubeId = (url: string): string | null => {
+    if (!url) return null;
+    
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /^([a-zA-Z0-9_-]{11})$/
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    
+    return null;
+  };
+
   // Upload avatar to Supabase Storage
   const uploadAvatar = async (file: File): Promise<string | null> => {
     try {
@@ -52,7 +70,6 @@ export default function StartStreamPage() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data } = supabase.storage
         .from('streamers')
         .getPublicUrl(filePath);
@@ -72,10 +89,18 @@ export default function StartStreamPage() {
       return;
     }
 
+    // Validate YouTube URL if provided
+    if (formData.youtubeUrl) {
+      const videoId = extractYouTubeId(formData.youtubeUrl);
+      if (!videoId) {
+        alert('Please enter a valid YouTube URL');
+        return;
+      }
+    }
+
     setIsUploading(true);
 
     try {
-      // 1. Upload avatar if exists
       let avatarUrl = null;
       if (avatarFile) {
         avatarUrl = await uploadAvatar(avatarFile);
@@ -84,20 +109,20 @@ export default function StartStreamPage() {
         }
       }
 
-      // 2. Get current user
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) {
         throw new Error('User not authenticated. Please log in first.');
       }
 
-      // 3. Parse tags
       const tagsArray = formData.tags
         .split(',')
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
 
-      // 4. Insert stream data
+      // Extract YouTube video ID
+      const youtubeVideoId = formData.youtubeUrl ? extractYouTubeId(formData.youtubeUrl) : null;
+
       const { data, error } = await supabase
         .from('streamers')
         .insert({
@@ -112,6 +137,7 @@ export default function StartStreamPage() {
           language: formData.language,
           privacy: formData.privacy,
           status: 'live',
+          youtube_video_id: youtubeVideoId, // NEW: Store YouTube video ID
         })
         .select()
         .single();
@@ -122,7 +148,7 @@ export default function StartStreamPage() {
       alert('Stream started successfully!');
       
       // Redirect to stream page
-      // window.location.href = `/stream/${data.id}`;
+      window.location.href = `/stream/${data.id}`;
     } catch (error: unknown) {
       console.error('Error starting stream:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -157,6 +183,8 @@ export default function StartStreamPage() {
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
 
+      const youtubeVideoId = formData.youtubeUrl ? extractYouTubeId(formData.youtubeUrl) : null;
+
       const { data, error } = await supabase
         .from('streamers')
         .insert({
@@ -171,6 +199,7 @@ export default function StartStreamPage() {
           language: formData.language,
           privacy: formData.privacy,
           status: 'draft',
+          youtube_video_id: youtubeVideoId,
         })
         .select()
         .single();
@@ -316,6 +345,24 @@ export default function StartStreamPage() {
                 placeholder="What are you streaming today?"
                 className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-gray-600"
               />
+            </div>
+
+            {/* NEW: YouTube Video URL */}
+            <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <label className="block mb-2 text-sm font-medium flex items-center space-x-2">
+                <Video className="w-4 h-4 text-red-500" />
+                <span>YouTube Video URL</span>
+              </label>
+              <input
+                type="text"
+                value={formData.youtubeUrl}
+                onChange={(e) => handleChange('youtubeUrl', e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-gray-600"
+              />
+              <p className="text-xs text-gray-400 mt-2">
+                Paste a YouTube video link to play during your stream (optional)
+              </p>
             </div>
 
             {/* Avatar Details */}

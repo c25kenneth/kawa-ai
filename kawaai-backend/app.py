@@ -67,7 +67,8 @@ def create_room():
         "title": "My Gaming Stream",
         "game": "League of Legends",
         "streamerName": "ProGamer123",
-        "userId": "uuid"
+        "userId": "uuid",
+        "youtubeVideoId": "dQw4w9WgXcQ"  # Added
     }
     """
     auth_header = request.headers.get('Authorization')
@@ -81,6 +82,7 @@ def create_room():
         game = data.get('game')
         streamer_name = data.get('streamerName')
         user_id = data.get('userId')
+        youtube_video_id = data.get('youtubeVideoId')  # Extract YouTube video ID
         
         if not all([title, game, streamer_name, user_id]):
             return jsonify({"error": "Missing required fields"}), 400
@@ -95,6 +97,7 @@ def create_room():
             "game": game,
             "streamer_name": streamer_name,
             "streamer_id": user_id,
+            "youtube_video_id": youtube_video_id,  # Add to room data
             "is_live": True,
             "viewer_count": 0,
             "created_at": "now()"
@@ -110,7 +113,6 @@ def create_room():
     except Exception as e:
         print(f"Error creating room: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/rooms/list', methods=['GET'])
 def list_rooms():

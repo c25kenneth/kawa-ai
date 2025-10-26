@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
 import { Search, Menu, User, Eye, Radio, PlusCircle, Play } from "lucide-react";
 import { signOut } from "../hooks/AuthFunctions";

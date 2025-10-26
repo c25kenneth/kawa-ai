@@ -6,6 +6,7 @@ import HomePage from "./screens/HomePage";
 import LiveStreamViewer from "./screens/VideoStream";
 import CreateStream from "./screens/CreateStream";
 import TextOnlyLivestream from "./screens/VideoStream";
+import StreamReplay from "./screens/StreamReplay";
 // import StartStreamPage from './screens/StartStream';
 
 function App() {
@@ -36,6 +37,15 @@ function App() {
           element={
             <ProtectedRoute>
               <LiveStreamViewer />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/replay/:roomId" 
+          element={
+            <ProtectedRoute>
+              <StreamReplay />
             </ProtectedRoute>
           } 
         />

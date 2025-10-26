@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   LiveKitRoom, 
@@ -33,9 +34,47 @@ interface Room {
   streamer_id: string;
   is_live: boolean;
   viewer_count: number;
+  youtube_video_id?: string;
 }
 
-// Chat Panel Component
+// YouTube Player Component
+function YouTubePlayer({ videoId }: { videoId: string }) {
+  const playerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Load YouTube IFrame API
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+    // Initialize player when API is ready
+    (window as any).onYouTubeIframeAPIReady = () => {
+      new (window as any).YT.Player(playerRef.current, {
+        videoId: videoId,
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          modestbranding: 1,
+          rel: 0,
+        },
+        events: {
+          onReady: (event: any) => {
+            event.target.playVideo();
+          },
+        },
+      });
+    };
+  }, [videoId]);
+
+  return (
+    <div className="absolute inset-0 w-full h-full">
+      <div ref={playerRef} className="w-full h-full" />
+    </div>
+  );
+}
+
+// Chat Panel Component (Now an overlay)
 function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo: Room | null; isStreamer: boolean }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -44,10 +83,8 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
   const room = useRoomContext();
   const navigate = useNavigate();
 
-  // Listen for incoming chat messages
   const { message } = useDataChannel('chat');
 
-  // Load previous messages from Supabase
   useEffect(() => {
     loadPreviousMessages();
   }, [roomId]);
@@ -63,7 +100,6 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
       if (error) throw error;
 
       if (data) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const formattedMessages: ChatMessage[] = data.map((msg: any) => ({
           id: msg.id,
           sender: msg.sender,
@@ -101,52 +137,55 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
   }, [messages]);
 
   const sendMessage = async () => {
-    if (!input.trim() || !localParticipant) return;
+  if (!input.trim() || !localParticipant) return;
 
-    const messageText = input.trim();
-    const encoder = new TextEncoder();
-    const data = encoder.encode(messageText);
+  const messageText = input.trim();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(messageText);
 
-    // Send to other participants
-    localParticipant.publishData(data, {
-      reliable: true,
-      topic: 'chat',
-    });
+  localParticipant.publishData(data, {
+    reliable: true,
+    topic: 'chat',
+  });
 
-    // Create a chat message object
-    const chatMessage: ChatMessage = {
-      id: `${Date.now()}-${Math.random()}`,
-      sender: localParticipant.identity,
-      message: messageText,
-      timestamp: Date.now(),
-      room_id: roomId,
-    };
+  // Get the current authenticated user
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    console.error('User not authenticated');
+    return;
+  }
 
-    // Add to local chat state immediately
-    setMessages((prev) => [...prev, chatMessage]);
-    setInput('');
-
-    // Upload message to Supabase
-    try {
-      const { error } = await supabase
-        .from('messages')
-        .insert([
-          {
-            id: chatMessage.id,
-            sender: chatMessage.sender,
-            message: chatMessage.message,
-            room_id: roomId,
-            created_at: new Date(chatMessage.timestamp).toISOString(),
-          },
-        ]);
-
-      if (error) {
-        console.error('Error uploading message to Supabase:', error.message);
-      }
-    } catch (err) {
-      console.error('Unexpected error uploading message:', err);
-    }
+  const chatMessage: ChatMessage = {
+    id: crypto.randomUUID(),
+    sender: user.id, // ✅ Use actual user ID
+    message: messageText,
+    timestamp: Date.now(),
+    room_id: roomId,
   };
+
+  setMessages((prev) => [...prev, chatMessage]);
+  setInput('');
+
+  try {
+    const { error } = await supabase
+      .from('messages')
+      .insert([
+        {
+          sender: user.id, // ✅ Use actual user ID that exists in auth.users
+          message: chatMessage.message,
+          room_id: roomId,
+          created_at: new Date(chatMessage.timestamp).toISOString(),
+        },
+      ]);
+
+    if (error) {
+      console.error('Error uploading message to Supabase:', error.message);
+    }
+  } catch (err) {
+    console.error('Unexpected error uploading message:', err);
+  }
+};
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -177,59 +216,87 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
   const participantCount = room.remoteParticipants.size + 1;
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900">
-      {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 p-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/')}
-              className="p-2 hover:bg-gray-700 rounded-lg transition"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <MessageSquare className="w-6 h-6 text-blue-500" />
-            <div>
-              <h1 className="text-lg font-semibold text-white">
-                {roomInfo?.title || 'Chat Room'}
-              </h1>
-              <div className="flex items-center gap-3 text-sm text-gray-400">
-                <div className="flex items-center gap-1">
-                  <Users className="w-4 h-4" />
-                  <span>{participantCount} participant{participantCount !== 1 ? 's' : ''}</span>
-                </div>
-                {roomInfo && (
-                  <span className="text-gray-500">• {roomInfo.game}</span>
-                )}
-              </div>
+    <div className="flex h-screen bg-gray-900">
+      {/* Main Content Area with YouTube Video */}
+      <div className="flex-1 relative">
+        {/* YouTube Video Background */}
+        {roomInfo?.youtube_video_id && (
+          <YouTubePlayer videoId={roomInfo.youtube_video_id} />
+        )}
+        
+        {/* No Video Placeholder */}
+        {!roomInfo?.youtube_video_id && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+            <div className="text-center">
+              <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
+              <p className="text-gray-400">No video playing</p>
             </div>
           </div>
-          
-          {isStreamer && (
-            <button
-              onClick={endStream}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition"
-            >
-              <StopCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">End Stream</span>
-            </button>
-          )}
+        )}
+
+        {/* Header Overlay */}
+        <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4 z-10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/')}
+                className="p-2 hover:bg-white/10 rounded-lg transition"
+              >
+                <ArrowLeft className="w-5 h-5 text-white" />
+              </button>
+              <div>
+                <h1 className="text-lg font-semibold text-white">
+                  {roomInfo?.title || 'Stream'}
+                </h1>
+                <div className="flex items-center gap-2 text-sm text-gray-300">
+                  <span>{roomInfo?.streamer_name}</span>
+                  <span>•</span>
+                  <span>{roomInfo?.game}</span>
+                </div>
+              </div>
+            </div>
+            
+            {isStreamer && (
+              <button
+                onClick={endStream}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition"
+              >
+                <StopCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">End Stream</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-4xl mx-auto space-y-3">
+      {/* Chat Overlay Panel */}
+      <div className="w-96 flex flex-col bg-gray-900/95 backdrop-blur-sm border-l border-gray-700">
+        {/* Chat Header */}
+        <div className="bg-gray-800/90 border-b border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-blue-500" />
+              <h2 className="font-semibold text-white">Live Chat</h2>
+            </div>
+            <div className="flex items-center gap-1 text-sm text-gray-400">
+              <Users className="w-4 h-4" />
+              <span>{participantCount}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 ? (
             <div className="text-center text-gray-500 mt-8">
               <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
-              <p>No messages yet. Start the conversation!</p>
+              <p className="text-sm">No messages yet</p>
             </div>
           ) : (
             messages.map((msg) => (
-              <div key={msg.id} className="bg-gray-800 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium text-blue-400">
+              <div key={msg.id} className="bg-gray-800/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium text-blue-400 text-sm">
                     {msg.sender}
                   </span>
                   <span className="text-xs text-gray-500">
@@ -239,33 +306,32 @@ function ChatPanel({ roomId, roomInfo, isStreamer }: { roomId: string; roomInfo:
                     })}
                   </span>
                 </div>
-                <p className="text-gray-200 break-words">{msg.message}</p>
+                <p className="text-gray-200 text-sm break-words">{msg.message}</p>
               </div>
             ))
           )}
           <div ref={chatEndRef} />
         </div>
-      </div>
 
-      {/* Message Input */}
-      <div className="border-t border-gray-700 p-4 bg-gray-800">
-        <div className="max-w-4xl mx-auto flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Send className="w-5 h-5 text-white" />
-            <span className="text-white font-medium">Send</span>
-          </button>
+        {/* Message Input */}
+        <div className="border-t border-gray-700 p-4 bg-gray-800/90">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Send a message..."
+              className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim()}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed p-2 rounded-lg transition-colors"
+            >
+              <Send className="w-5 h-5 text-white" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -286,7 +352,6 @@ export default function TextOnlyLivestream() {
   const [roomInfo, setRoomInfo] = useState<Room | null>(null);
   const [isStreamer, setIsStreamer] = useState(false);
 
-  // Check authentication and load room info
   useEffect(() => {
     checkAuth();
     if (roomId) {
@@ -384,7 +449,6 @@ export default function TextOnlyLivestream() {
     navigate('/');
   };
 
-  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -393,7 +457,6 @@ export default function TextOnlyLivestream() {
     );
   }
 
-  // Not authenticated
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
@@ -409,7 +472,6 @@ export default function TextOnlyLivestream() {
     );
   }
 
-  // Room not found
   if (!roomInfo && !loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
@@ -431,7 +493,6 @@ export default function TextOnlyLivestream() {
     );
   }
 
-  // In room - Show chat interface
   if (isInRoom && token && wsUrl) {
     return (
       <LiveKitRoom
@@ -448,7 +509,6 @@ export default function TextOnlyLivestream() {
     );
   }
 
-  // Ready to join - Show join screen
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
       <div className="bg-gray-800 rounded-lg p-8 w-full max-w-md">
@@ -483,7 +543,7 @@ export default function TextOnlyLivestream() {
           ) : (
             <>
               <MessageSquare className="w-5 h-5" />
-              Join Chat Room
+              Join Stream
             </>
           )}
         </button>
@@ -492,9 +552,11 @@ export default function TextOnlyLivestream() {
           <p className="text-sm text-gray-300">
             <strong>Category:</strong> {roomInfo?.game}
           </p>
-          <p className="text-sm text-gray-300 mt-1">
-            <strong>Mode:</strong> Text-only chat
-          </p>
+          {roomInfo?.youtube_video_id && (
+            <p className="text-sm text-gray-300 mt-1">
+              <strong>Video:</strong> YouTube stream
+            </p>
+          )}
         </div>
 
         <button
